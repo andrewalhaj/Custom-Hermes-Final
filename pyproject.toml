@@ -1,0 +1,5 @@
+[dependency-groups]
+dev = ["ruff==0.17.4"]
+
+[tool.ruff.lint]
+extend-select = ["BLE001", "S110"]
