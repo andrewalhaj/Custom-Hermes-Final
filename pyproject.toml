@@ -1,5 +1,5 @@
 [dependency-groups]
-dev = ["ruff==0.17.4", "pytest==9.2.0", "pyyaml==6.0.3"]
+dev = ["ruff==0.17.4", "pytest==9.2.0", "pyyaml==6.0.3", "psycopg[binary]==3.3.9"]
 
 # CONTRIBUTING.md 5.4 and 8.2: C2's broad handlers (BLE001, S110, S112), contextlib.suppress (C2, F3) and L1's logging
 # forms (G: format in log calls, LOG: root logger and getLogger arguments, logging.basicConfig).
