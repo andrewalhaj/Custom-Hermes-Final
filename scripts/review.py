@@ -70,6 +70,11 @@ def extra_tools(tools):
     return sorted(set(tools) - {*TOOLS, "StructuredOutput"})
 
 
+def missing_tools(tools):
+    """The read tools a session did not list. An answer without them is no evidence that the limit holds."""
+    return sorted(set(TOOLS) - set(tools))
+
+
 def checklist(guide):
     """Every C, F and L rule in sections 5 to 7 of the guide, by ID, then one item each for sections 8 and 9."""
     sections = guide[guide.index("\n## 5. "):guide.index("\n## 8. ")]
@@ -187,13 +192,6 @@ def main(argv):
     if args.print_issue:
         sys.stdout.write(fetch_issue())
         return 0
-    if args.check_tools:   # the session's own account of its tools: a Claude Code bump could change `--tools`
-        asked = subprocess.run(tool_check_command(), input=TOOL_QUESTION, cwd=ROOT, check=True,
-                               stdout=subprocess.PIPE, text=True)
-        extra = extra_tools(json.loads(asked.stdout)["structured_output"]["tools"])
-        if extra:
-            print(f"the reviewer was offered tools beyond Read, Grep and Glob: {', '.join(extra)}", file=sys.stderr)
-            return 5
     guide = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     items = checklist(guide)
 
@@ -201,6 +199,18 @@ def main(argv):
         parser.error(f"check out {args.branch} first: the reviewer reads files from this checkout")
     if read("git", "status", "--porcelain").strip():
         parser.error("commit or remove the uncommitted changes first: the reviewer would read them as the branch")
+    if args.check_tools:   # the session's own account of its tools: a Claude Code bump could change `--tools`
+        asked = subprocess.run(tool_check_command(), input=TOOL_QUESTION, cwd=ROOT, check=True,
+                               stdout=subprocess.PIPE, text=True)
+        tools = json.loads(asked.stdout)["structured_output"]["tools"]
+        if missing_tools(tools):   # an empty or partial answer is not "nothing extra"
+            print(f"the session did not list its own read tools ({', '.join(missing_tools(tools))}), so its answer "
+                  "does not show that the tool limit holds", file=sys.stderr)
+            return 5
+        if extra_tools(tools):
+            print(f"the reviewer was offered tools beyond Read, Grep and Glob: {', '.join(extra_tools(tools))}",
+                  file=sys.stderr)
+            return 5
     read("git", "fetch", "--quiet", "origin", "main")   # W11: diff against main as it is now
     span = f"origin/main...{args.branch}"
     text = brief(args.branch, args.issue, items, guide, diff=read("git", "diff", span),
