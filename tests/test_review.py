@@ -149,6 +149,12 @@ def test_the_script_refuses_the_wrong_branch_or_a_dirty_tree_before_any_review(m
     assert ("claude", "-p") not in fake.ran and ("git", "diff") not in fake.ran
 
 
+def test_out_saves_the_report_as_json(monkeypatch, tmp_path):
+    monkeypatch.setattr(review.subprocess, "run", FakeRun(report=report()))
+    assert review.main(["feat/x", "7", "--out", str(tmp_path / "r.json")]) == 0
+    assert review.json.loads((tmp_path / "r.json").read_text(encoding="utf-8")) == report()
+
+
 def test_a_run_with_no_structured_output_crashes(monkeypatch):
     fake = FakeRun()
     fake.answers[("claude", "-p")] = "{}"
