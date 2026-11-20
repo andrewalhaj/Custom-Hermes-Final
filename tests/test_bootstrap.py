@@ -179,16 +179,16 @@ BANNED_NAMES = {".hermes.md", "hermes.md", "agents.override.md", "claude.md", ".
 
 
 def missing_guides(root):
-    text = (root / AGENT_GUIDE).read_text(encoding="utf-8")
+    text = prose(root / AGENT_GUIDE)   # a link inside a code block is an example, not a pointer
     return [g for g in GUIDES if f"]({g})" not in text or not (root / g).is_file()]
 
 
 def error_handling_rule(contributing):
     """The one quoted line in section 9 that every brief ends with."""
     section = contributing[contributing.index("\n## 9. "):]
-    rules = re.findall(r"^\s*> (Error handling rule: .+(?:\n\s*> .+)*)$", section, re.MULTILINE)
+    rules = re.findall(r"^[ \t]*> (Error handling rule: .+(?:\n[ \t]*> .+)*)$", section, re.MULTILINE)
     assert len(rules) == 1, f"expected one quoted error-handling rule in section 9, found {len(rules)}"
-    return re.sub(r"\n\s*> ", " ", rules[0])   # the quote may wrap over several lines
+    return re.sub(r"\n[ \t]*> ", " ", rules[0])   # the quote may wrap over several lines
 
 
 def repeats_rule(agent_guide, rule):
@@ -249,6 +249,7 @@ def test_a_changed_rule_fails_in_either_file():
     assert not repeats_rule(agent_guide.replace('crash."', 'crash, usually."'), rule)   # an extended one
     wrapped = contributing.replace("by name. Never", "by name.\n  > Never")
     assert error_handling_rule(wrapped) == rule
+    assert error_handling_rule(contributing.replace(rule, rule + "\n\n  > A note quoted under the rule.")) == rule
     with pytest.raises(AssertionError, match="found 0"):
         error_handling_rule(contributing.replace("> Error handling rule:", "> Rule:"))
 
