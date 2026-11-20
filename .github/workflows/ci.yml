@@ -172,3 +172,69 @@ jobs:
           sys.exit("\n".join(bad) if bad else 0)
           PY
       - run: python -m pytest -q
+  review:   # the independent review (CONTRIBUTING.md W6); not a required check
+    # Only where the secret can be read: not a pull request from a fork, not one Dependabot opened.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30   # a hung reviewer must not hold a runner for hours
+    concurrency:   # a new push replaces the review of the old one; each review draws on the subscription
+      group: review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}   # the commit this run is for
+          fetch-depth: 0   # the script diffs against origin/main
+          persist-credentials: false   # keep the job's token out of .git/config, which the reviewer can read
+      - name: name the checkout as the branch
+        shell: bash
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: git checkout -B "$BRANCH"   # the script checks that the branch is checked out by name
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
+        with: { python-version: "3.14" }
+      - run: npm install --global @anthropic-ai/claude-code@2.1.322
+      - name: find the issue this pull request closes
+        id: issue
+        shell: bash
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          found = re.search(r"(?im)^closes #(\d+)\b", os.environ["BODY"])
+          if not found:
+              sys.exit("no 'Closes #<n>' line in the pull request body (CONTRIBUTING.md W7)")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"issue={found.group(1)}\n")
+          PY
+      - name: review the branch
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # the Claude subscription; this step only
+          GH_TOKEN: ${{ github.token }}   # read-only, for `gh issue view`
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          ISSUE: ${{ steps.issue.outputs.issue }}
+        run: |
+          # The report, with any reason it is incomplete (stderr), goes to the log and to the job summary.
+          set +e
+          python scripts/review.py "$BRANCH" "$ISSUE" > "$RUNNER_TEMP/review.txt" 2>&1
+          code=$?
+          set -e
+          # The report is model output. The runner must not act on a line in it that looks like a workflow command.
+          token=$(python -c 'import secrets; print(secrets.token_hex(16))')
+          echo "::stop-commands::$token"
+          cat "$RUNNER_TEMP/review.txt"
+          echo "::$token::"
+          # A tilde fence longer than any run of tildes in the report, so nothing in the report can close it.
+          fence=$(python -c 'import re, sys; print("~" * (max(map(len, re.findall("~+", open(sys.argv[1]).read())), default=7) + 1))' "$RUNNER_TEMP/review.txt")
+          { echo "${fence}text"; cat "$RUNNER_TEMP/review.txt"; echo "$fence"; } >> "$GITHUB_STEP_SUMMARY"
+          # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
+          exit "$code"
