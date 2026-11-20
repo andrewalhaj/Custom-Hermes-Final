@@ -100,6 +100,8 @@ HIDDEN = [
     ".githooks/notes.md",
     "scripts/.env",
     "scripts/notes.md",
+    "migrations/.env",
+    "migrations/notes.md",
 ]
 VISIBLE = [
     ".gitignore",
@@ -114,6 +116,8 @@ VISIBLE = [
     ".githooks/pre-commit",
     "tests/test_new.py",
     "scripts/review.py",
+    "migrations/0001_memory_store.sql",
+    "migrations/0002_next.sql",
 ]
 
 
