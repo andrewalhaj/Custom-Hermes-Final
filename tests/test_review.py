@@ -88,11 +88,11 @@ def test_an_incomplete_report_is_not_a_review(label, bad, expect):
     assert review.exit_code(broken, ITEMS) == 2
 
 
-def test_a_failed_rule_or_a_fix_first_verdict_exits_non_zero():
+def test_a_failed_rule_or_a_fix_first_verdict_exits_with_its_own_code():
     failed = report(rules={"C3": {"verdict": "fail", "evidence": "store.py:12 returns [] on a timeout"}})
     assert review.problems(failed, ITEMS) == []
-    assert review.exit_code(failed, ITEMS) == 1
-    assert review.exit_code(report(verdict="fix_first"), ITEMS) == 1
+    assert review.exit_code(failed, ITEMS) == 3   # 1 is left to a crash
+    assert review.exit_code(report(verdict="fix_first"), ITEMS) == 3
 
 
 def test_not_applicable_with_a_reason_passes():

@@ -5,8 +5,9 @@
 A separate, read-only `claude -p` at ponytail ultra reviews the branch against origin/main and must answer,
 with evidence, for every rule in CONTRIBUTING.md sections 5 to 9. The checklist is read from the guide each
 run, so a new rule is asked about without a change here. Exit 0: every item answered, none failed, verdict
-ship. Exit 1: a rule failed or the verdict is fix_first. Exit 2: the report is not a complete review.
-Anything else that goes wrong (no `claude`, no login, no structured output) crashes: it is not a review.
+ship. Exit 3: a rule failed or the verdict is fix_first. Exit 2: the report is not a complete review.
+Anything else that goes wrong (no `claude`, no login, no structured output) crashes with a traceback and
+exit 1: it is not a review.
 """
 
 import argparse
@@ -28,7 +29,7 @@ ULTRA = ("Ponytail level for this session: ultra. Also question the request: bef
          "change, push back on any part the need does not justify. You are an independent reviewer with no "
          "prior context; do not assume the author's claims are true, check them.")
 TOOLS = ["Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git ls-files:*)",
-         "Bash(git status:*)", "Bash(gh issue view:*)", "Bash(uv run -q --no-project:*)"]
+         "Bash(git status:*)", "Bash(gh issue view:*)"]   # read-only: nothing here runs a program
 
 
 def checklist(guide):
@@ -38,6 +39,9 @@ def checklist(guide):
     for letter in "CFL":
         if not any(key.startswith(letter) for key in items):
             raise ValueError(f"no {letter} rules found in CONTRIBUTING.md sections 5 to 7")
+    bold_ids = re.findall(r"\*\*([CFL]\d+)", sections)   # a rule written in a form the line above cannot read
+    if sorted(bold_ids) != sorted(items):
+        raise ValueError(f"rule IDs in the guide {sorted(bold_ids)} are not the checklist's {sorted(items)}")
     return {**items, **SECTION_ITEMS}
 
 
@@ -85,7 +89,7 @@ def exit_code(report, items):
     if problems(report, items):
         return 2
     failed = any(answer["verdict"] == "fail" for answer in report["rules"].values())
-    return 1 if failed or report["verdict"] != "ship" else 0
+    return 3 if failed or report["verdict"] != "ship" else 0
 
 
 def main(argv):
@@ -99,7 +103,7 @@ def main(argv):
                "--append-system-prompt", ULTRA, "--allowedTools", *TOOLS,
                "--disallowedTools", "Edit", "Write", "NotebookEdit"]
     done = subprocess.run(command, input=brief(args.branch, args.issue, items), cwd=ROOT, check=True,
-                          capture_output=True, text=True)
+                          stdout=subprocess.PIPE, text=True)   # stderr stays on the terminal, so a failure shows why
     report = json.loads(done.stdout)["structured_output"]   # absent when claude returned no review: crash
     if args.out:
         args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
