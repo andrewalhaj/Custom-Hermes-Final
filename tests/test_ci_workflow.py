@@ -10,7 +10,6 @@ Needs `git`, `ruff`, `gitleaks` and `python` on PATH, as the CI job has them.
 import pathlib
 import shutil
 import subprocess
-import tomllib
 
 import pytest
 import yaml
@@ -19,20 +18,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 NOQA = "no" + "qa"  # kept apart so the noqa ban does not match this file
-# The repository's lint configuration, banned-api table first, so a case can append keys to [tool.ruff.lint].
-CONFIG = """[tool.ruff.lint.flake8-tidy-imports.banned-api]
-"logging.basicConfig".msg = "L1: Hermes owns logging configuration"
-"contextlib.suppress".msg = "C2, F3: suppress hides a failure without recording it; catch by name and record it"
-
-[tool.ruff.lint]
-extend-select = ["BLE001", "S110", "S112", "G", "LOG", "TID251"]
-"""
+# The repository's own configuration. It ends inside [tool.ruff.lint], so a case can append keys to that table.
+CONFIG = (ROOT / "pyproject.toml").read_text()
 CODE = "x = 1\n"
-
-
-def test_the_cases_lint_with_the_repository_configuration():
-    repo = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["ruff"]
-    assert tomllib.loads(CONFIG)["tool"]["ruff"] == repo
 
 
 def steps():
@@ -300,6 +288,8 @@ def test_the_allow_list_admits_only_a_named_wrapper_by_its_qualified_name(tmp_pa
     method = "class Other:\n    def boundary(self):\n        try:\n            x = 1\n        except Exception:\n            raise\n"
     check(tmp_path / "method", script, {"pkg/failures.py": decorator + method},
           "broad handler outside the wrappers: pkg/failures.py:12 in Other.boundary")
+    check(tmp_path / "elsewhere", script, {"pkg/other.py": decorator},   # the same name in another file is not it
+          "broad handler outside the wrappers: pkg/other.py:5 in boundary.wrapped")
 
 
 def test_the_handler_check_fails_when_git_is_missing(tmp_path):
