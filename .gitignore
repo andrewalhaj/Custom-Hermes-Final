@@ -12,6 +12,7 @@
 !/.github/
 !/.githooks/
 !/tests/
+!/migrations/
 
 /.github/*
 !/.github/dependabot.yml
@@ -24,3 +25,6 @@
 
 /tests/*
 !/tests/*.py
+
+/migrations/*
+!/migrations/*.sql
