@@ -87,6 +87,11 @@ NOQA_CASES = [
     ("bare, no space, trailing text", {"a.py": f"x = 1  #{NOQA}  because\n"}, "git grep exited 0"),
     ("file-level ruff", {"a.py": f"# ruff: {NOQA}\nx = 1\n"}, "git grep exited 0"),
     ("file-level flake8", {"a.py": f"# flake8: {NOQA}\nx = 1\n"}, "git grep exited 0"),
+    ("names S112", {"a.py": f"x = 1  # {NOQA}: S112\n"}, "git grep exited 0"),
+    ("names a G code", {"a.py": f"x = 1  # {NOQA}: G004\n"}, "git grep exited 0"),
+    ("names a LOG code, no space", {"a.py": f"x = 1  # {NOQA}:LOG015\n"}, "git grep exited 0"),
+    ("names TID251 after another rule", {"a.py": f"x = 1  # {NOQA}: F401,TID251\n"}, "git grep exited 0"),
+    ("another rule that only ends like a code", {"a.py": f"x = 1  # {NOQA}: PLC0415, RUF100\n"}, None),
 ]
 
 
@@ -105,7 +110,12 @@ def test_noqa_ban_fails_when_git_fails(tmp_path):
 UNSUPPRESSED_STEP = "no broad catch once every suppression comment is ignored"
 BROAD = {"BLE001": "try:\n    x = 1\nexcept Exception:{line}\n    x = 2\n",
          "S110": "try:\n    x = 1\nexcept Exception:{line}\n    pass{line}\n",
-         "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n"}
+         "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n",
+         # the rules #16 added (C2, L1); a comment must not silence them either (#19)
+         "S112": "for i in ():\n    try:\n        x = 1\n    except ValueError:{line}\n        continue{line}\n",
+         "G004": "import logging\n\nlogging.getLogger(__name__).warning(f\"{{__name__}}\"){line}\n",
+         "LOG015": "import logging\n\nlogging.info(\"x\"){line}\n",
+         "TID251": "import contextlib\n\nwith contextlib.suppress(ValueError):{line}\n    x = 1\n"}
 LINE_FORMS = [f"# {NOQA} : {{rule}}", "# ruff: ignore[{rule}]"]
 FILE_FORMS = ["# ruff: disable[{rule}]", "# ruff: file-ignore[{rule}]", f"# ruff : {NOQA}", f"# flake8 : {NOQA}"]
 UNSUPPRESSED_CASES = [("clean", {"pyproject.toml": CONFIG, "a.py": CODE}, None),
