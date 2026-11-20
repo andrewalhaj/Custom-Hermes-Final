@@ -200,3 +200,5 @@ def test_the_reviewer_is_given_the_issues_comments_after_its_body(monkeypatch):
     brief = fake.given[-1]
     assert brief.index("the issue\n") < brief.index("Comments on the issue") < brief.index("a comment that widens the scope")
     assert fake.ran.count(("gh", "issue")) == 2
+    # Anyone can comment on a public issue: only the owner's or a member's comment can change its scope.
+    assert "association" in brief and "owner or a member" in brief
