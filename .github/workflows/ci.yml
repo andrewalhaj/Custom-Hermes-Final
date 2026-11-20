@@ -172,3 +172,44 @@ jobs:
           sys.exit("\n".join(bad) if bad else 0)
           PY
       - run: python -m pytest -q
+  review:   # the independent review (CONTRIBUTING.md W6); not a required check
+    # Only where the secret can be read: not a pull request from a fork, not one Dependabot opened.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}   # the branch by name: the script checks it is checked out
+          fetch-depth: 0   # the script diffs against origin/main
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
+        with: { python-version: "3.14" }
+      - run: npm install --global @anthropic-ai/claude-code@2.1.322
+      - name: find the issue this pull request closes
+        id: issue
+        shell: bash
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          found = re.search(r"(?im)^closes #(\d+)\b", os.environ["BODY"])
+          if not found:
+              sys.exit("no 'Closes #<n>' line in the pull request body (CONTRIBUTING.md W7)")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"issue={found.group(1)}\n")
+          PY
+      - name: review the branch
+        shell: bash
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # the Claude subscription; this step only
+          GH_TOKEN: ${{ github.token }}   # read-only, for `gh issue view`
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          ISSUE: ${{ steps.issue.outputs.issue }}
+        run: python scripts/review.py "$BRANCH" "$ISSUE" | tee "$GITHUB_STEP_SUMMARY"
