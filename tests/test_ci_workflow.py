@@ -7,6 +7,7 @@ that names its cause, so a step that breaks for some other reason cannot pass a 
 Needs `git`, `ruff`, `gitleaks` and `python` on PATH, as the CI job has them.
 """
 
+import json
 import pathlib
 import re
 import shutil
@@ -567,8 +568,10 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
 
 def test_the_issue_text_is_fetched_in_its_own_step_with_the_github_token():
     step = review_step("read the issue")
-    assert step["env"] == {"GH_TOKEN": "${{ github.token }}", "ISSUE": "${{ steps.issue.outputs.issue }}"}
-    assert step["run"].strip() == 'gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"'
+    assert step["env"] == {"GH_TOKEN": "${{ github.token }}", "ISSUE": "${{ steps.issue.outputs.issue }}",
+                           "BRANCH": "${{ github.event.pull_request.head.ref }}"}
+    # The script writes the issue's text, comments included, so CI and a local run give the reviewer the same.
+    assert step["run"].strip() == 'python scripts/review.py "$BRANCH" "$ISSUE" --print-issue > "$RUNNER_TEMP/issue.txt"'
     names = [s.get("name") for s in review_job()["steps"]]
     assert names.index(ISSUE_STEP) < names.index("read the issue") < names.index("review the branch")
 
@@ -704,21 +707,29 @@ def test_a_byte_that_is_not_utf8_shows_in_the_summary_and_is_not_dropped(tmp_pat
 
 
 def read_issue(tmp_path, gh_exit):
-    """Run the step that fetches the issue, with a stand-in `gh` that prints its arguments and exits."""
+    """Run the step that fetches the issue, with the real script and a stand-in `gh` that prints an issue as JSON."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*"\nexit {gh_exit}\n')
+    issue = {"title": "t", "body": "the body", "comments": [
+        {"author": {"login": "a"}, "authorAssociation": "NONE", "body": "a comment"}]}
+    (bin_dir / "gh").write_text(f"#!/bin/sh\ncat <<'JSON'\n{json.dumps(issue)}\nJSON\nexit {gh_exit}\n")
     (bin_dir / "gh").chmod(0o755)
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(ROOT / "scripts" / "review.py", tmp_path / "scripts" / "review.py")
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("read the issue")["run"]],
                             check=False, capture_output=True, text=True, cwd=tmp_path,
-                            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ISSUE": "7", "RUNNER_TEMP": str(tmp_path)})
-    return result.returncode, (tmp_path / "issue.txt").read_text()
+                            env={"PATH": f"{bin_dir}:{pathlib.Path(shutil.which('python')).parent}:/usr/bin:/bin",
+                                 "ISSUE": "7", "BRANCH": "feat/x", "RUNNER_TEMP": str(tmp_path)})
+    return result.returncode, (tmp_path / "issue.txt").read_text(), result.stderr
 
 
-def test_the_issue_step_writes_what_gh_prints_and_fails_when_gh_fails(tmp_path):
-    assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n")
+def test_the_issue_step_writes_the_issue_with_its_comments_and_fails_when_gh_fails(tmp_path):
+    code, text, _ = read_issue(tmp_path, 0)
+    assert code == 0 and "the body" in text and "[comment 1 by a, NONE: a note only]" in text and "> a comment" in text
+    # A fetch that fails must fail the step: an issue with an empty comments section reads as "none" (C3).
     (tmp_path / "failed").mkdir()
-    assert read_issue(tmp_path / "failed", 1)[0] == 1
+    code, _, errors = read_issue(tmp_path / "failed", 1)
+    assert code == 1 and "CalledProcessError" in errors   # the script's own crash on gh failing, not another cause
 
 
 def test_the_review_job_cannot_hang_or_pile_up():
