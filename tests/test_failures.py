@@ -3,8 +3,6 @@
 import pathlib
 import re
 
-import pytest
-
 from custom_build import failures
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -43,9 +41,28 @@ def test_every_code_says_what_it_means():
     assert [code for code, text in failures.CATALOG.items() if not text.strip()] == []
 
 
+def severity_faults(severity):
+    """What is wrong with a severity table, by kind; every set is empty when nothing is."""
+    return {
+        "missing": failure_codes() - set(severity),
+        "not a failure": set(severity) - failure_codes(),
+        "bad level": {code for code, level in severity.items() if level not in ("high", "medium", "low")},
+    }
+
+
+NO_FAULTS = {"missing": set(), "not a failure": set(), "bad level": set()}
+
+
 def test_every_failure_code_has_a_severity():
-    assert set(failures.SEVERITY) == failure_codes()
-    assert set(failures.SEVERITY.values()) <= {"high", "medium", "low"}
+    assert severity_faults(failures.SEVERITY) == NO_FAULTS
+
+
+def test_a_wrong_severity_table_is_caught():
+    # The failing cases for the test above.
+    without = {code: level for code, level in failures.SEVERITY.items() if code != "db.unreachable"}
+    assert severity_faults(without) == {**NO_FAULTS, "missing": {"db.unreachable"}}
+    assert severity_faults({**failures.SEVERITY, "host.heartbeat": "low"}) == {**NO_FAULTS, "not a failure": {"host.heartbeat"}}
+    assert severity_faults({**failures.SEVERITY, "db.query": "urgent"}) == {**NO_FAULTS, "bad level": {"db.query"}}
 
 
 def test_the_guide_marks_both_kinds_of_code():
@@ -60,17 +77,15 @@ def test_the_catalog_says_not_a_failure_for_exactly_the_codes_the_guide_does():
     assert marked == set(failures.CATALOG) - failure_codes()
 
 
-def not_showable(shown):
-    """The codes in `shown` that are not failure codes: unknown ones, and events that are not failures."""
-    return set(shown) - failure_codes()
+def not_in_catalog(shown):
+    return set(shown) - set(failures.CATALOG)
 
 
-def test_only_a_failure_code_can_be_shown_in_a_turn():
+def test_a_code_shown_in_a_turn_is_in_the_catalog():
     assert isinstance(failures.SHOWN_IN_TURN, frozenset)
-    assert not_showable(failures.SHOWN_IN_TURN) == set()
+    assert not_in_catalog(failures.SHOWN_IN_TURN) == set()
 
 
-@pytest.mark.parametrize("code", ["db.unreachabel", "host.heartbeat", "write_gate.denied"])
-def test_a_code_that_is_not_a_failure_cannot_be_shown_in_a_turn(code):
+def test_an_unknown_code_cannot_be_shown_in_a_turn():
     # The failing case for the test above, which an empty SHOWN_IN_TURN cannot provide.
-    assert not_showable({"db.unreachable", code}) == {code}
+    assert not_in_catalog({"db.unreachable", "fact_gate.withheld", "db.unreachabel"}) == {"db.unreachabel"}
