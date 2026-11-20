@@ -62,7 +62,11 @@ def load(tmp_path, *, enabled=True, broken=False):
 
 
 def ordinary_load_ok(entry):
-    """The ordinary load happened, without an error, as the standalone plugin custom_build."""
+    """The ordinary load happened, without an error, as the standalone plugin custom_build.
+
+    The `kind` part cannot fail yet: Hermes reads this plugin as standalone with or without the manifest's
+    line, until it defines a memory provider (#62).
+    """
     return entry is not None and entry["error"] is None and entry["enabled"] and entry["kind"] == "standalone"
 
 

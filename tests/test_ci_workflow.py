@@ -790,7 +790,7 @@ def test_hermes_is_installed_from_its_own_pins_before_the_tests_run():
     assert commands.index(script) < commands.index("python -m pytest -q")
 
 
-def test_the_pins_file_is_the_export_for_the_commit_the_workflow_installs():
+def test_the_pins_file_names_the_commit_the_workflow_installs_and_pins_every_package_exactly():
     pins = (ROOT / "hermes-requirements.txt").read_text(encoding="utf-8")
     assert HERMES_COMMIT in pins.splitlines()[1]
     lines = [line for line in pins.splitlines() if line and not line.startswith(("#", " "))]

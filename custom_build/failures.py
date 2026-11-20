@@ -4,8 +4,9 @@ The recording helper and the two wrappers are not written yet. tests/test_failur
 to the table in ARCHITECTURE.md 6.1.
 """
 
-# Every code an event can carry, with what it means. A text that starts "Not a failure" marks an
-# event that is recorded but is not a failure: it has no severity.
+# Every code an event can carry, with a short form of what it means; the table in ARCHITECTURE.md 6.1
+# is the full meaning. A text that starts "Not a failure" marks an event that is recorded but is not a
+# failure: it has no severity. tests/test_failures.py holds that mark to the table's.
 CATALOG = {
     "embed.unavailable": "The embedding service cannot be reached",
     "embed.refused": "The hosted embedding service refuses the key: revoked, out of credit or not allowed",
