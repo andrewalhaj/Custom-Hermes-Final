@@ -102,6 +102,15 @@ def test_not_applicable_with_a_reason_passes():
     assert review.exit_code(report(rules={"C10": {"verdict": "not_applicable", "evidence": "no migration"}}), ITEMS) == 0
 
 
+def test_the_review_instructions_are_in_the_brief_not_in_a_user_plugin():
+    # A CI runner, or another contributor, has no user-installed plugin (#29).
+    brief = review.brief("feat/x", 7, ITEMS, GUIDE, diff="d", log="l", issue="i")
+    said = (brief + " ".join(review.command(ITEMS))).lower()
+    assert not brief.startswith("/") and "ponytail" not in said
+    assert all(part in brief for part in ("Must fix", "Should fix", "Nice to have", "What you did not check"))
+    assert "does not justify" in said   # still pushes back on what the issue does not ask for
+
+
 def test_the_brief_carries_the_change_the_issue_and_every_item_and_ends_with_the_rule():
     brief = review.brief("feat/x", 7, ITEMS, GUIDE, diff="+ added line", log="abc123 a commit", issue="Done looks like")
     assert "feat/x" in brief and "issue #7" in brief
