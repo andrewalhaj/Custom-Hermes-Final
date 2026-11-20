@@ -55,18 +55,12 @@ def add_event(conn, source=AGENT):
     ).fetchone()[0]
 
 
-def test_the_agent_saves_a_fact_and_reads_it_back(db):
-    with psycopg.connect(db["agent"]) as conn:
-        fact = add_fact(conn)
-        assert conn.execute("select body, basis, source, project from memory.facts where id = %s", (fact,)).fetchone() \
-            == ("The disposable store is Postgres 17.", "user_stated", AGENT, None)
-
-
 def test_a_new_connection_reads_a_fact_another_committed(db):
     with psycopg.connect(db["agent"]) as conn:
         fact = add_fact(conn)
     with psycopg.connect(db["agent"]) as conn:
-        assert conn.execute("select count(*) from memory.facts where id = %s", (fact,)).fetchone() == (1,)
+        assert conn.execute("select body, basis, source, project from memory.facts where id = %s", (fact,)).fetchone() \
+            == ("The disposable store is Postgres 17.", "user_stated", AGENT, None)
 
 
 def test_the_agent_records_an_event_under_its_own_name(db):
