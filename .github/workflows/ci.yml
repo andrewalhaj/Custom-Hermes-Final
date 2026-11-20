@@ -146,15 +146,20 @@ jobs:
               for child in ast.iter_child_nodes(node):
                   if isinstance(child, ast.ExceptHandler) and broad(child.type, names) and f"{path}:{func}" not in ALLOWED:
                       bad.append(f"broad handler outside the wrappers: {path}:{child.lineno} in {func or 'module'}")
-                  if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and (
-                          child.func.attr == "addHandler"
-                          or child.func.attr in ("append", "extend", "insert") and getattr(child.func.value, "attr", None) == "handlers"):
+                  if isinstance(child, ast.Call) and getattr(child.func, "attr", None) == "addHandler":
                       bad.append(f"log handler added: {path}:{child.lineno}")
                   # or put straight into a logger's list, or in place of the last-resort handler:
-                  # `x.handlers = ...`, `x.handlers += ...`, `logging.lastResort = ...`
+                  # `x.handlers.append(...)`, `x.handlers = ...`, `x.handlers += ...`, `logging.lastResort = ...`.
+                  # These go by the attribute's name, so each message names what was seen, not what it must mean.
+                  called = (isinstance(child, ast.Call) and getattr(child.func, "attr", None) in ("append", "extend", "insert")
+                            and getattr(child.func.value, "attr", None) == "handlers")
                   targets = child.targets if isinstance(child, ast.Assign) else [getattr(child, "target", None)]
-                  if isinstance(child, (ast.Assign, ast.AugAssign, ast.AnnAssign)) and any(getattr(t, "attr", None) in ("handlers", "lastResort") for t in targets):
-                      bad.append(f"log handler added: {path}:{child.lineno}")
+                  assigned = {getattr(t, "attr", None) for t in targets} if isinstance(child, (ast.Assign, ast.AugAssign, ast.AnnAssign)) else set()
+                  if called or "handlers" in assigned:
+                      bad.append(f"a `.handlers` list changed: {path}:{child.lineno} (L1: no log handler is added by hand; "
+                                 "rename the attribute if it is not a logger's)")
+                  if "lastResort" in assigned:
+                      bad.append(f"`lastResort` assigned: {path}:{child.lineno} (L1: Hermes owns logging's last-resort handler)")
                   # or logging.config imported by name, which the lint's ban on it cannot see
                   if (isinstance(child, ast.Call) and getattr(child.func, "attr", getattr(child.func, "id", None)) in ("import_module", "__import__")
                           and child.args and isinstance(child.args[0], ast.Constant) and str(child.args[0].value).startswith("logging.config")):

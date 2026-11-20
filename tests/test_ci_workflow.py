@@ -289,21 +289,26 @@ HANDLER_CASES += [
     ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
     # A handler put straight into a logger's list, without addHandler (#17).
     ("handlers.append", {"a.py": "import logging\nlogging.root.handlers.append(logging.NullHandler())\n"},
-     "log handler added: a.py:2"),
-    ("handlers.extend", {"a.py": "def f(log, h):\n    log.handlers.extend([h])\n"}, "log handler added: a.py:2"),
-    ("handlers.insert", {"a.py": "def f(log, h):\n    log.handlers.insert(0, h)\n"}, "log handler added: a.py:2"),
-    ("handlers assigned", {"a.py": "def f(log, h):\n    log.handlers = [h]\n"}, "log handler added: a.py:2"),
-    ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "log handler added: a.py:2"),
+     "a `.handlers` list changed: a.py:2"),
+    ("handlers.extend", {"a.py": "def f(log, h):\n    log.handlers.extend([h])\n"}, "a `.handlers` list changed: a.py:2"),
+    ("handlers.insert", {"a.py": "def f(log, h):\n    log.handlers.insert(0, h)\n"}, "a `.handlers` list changed: a.py:2"),
+    ("handlers assigned", {"a.py": "def f(log, h):\n    log.handlers = [h]\n"}, "a `.handlers` list changed: a.py:2"),
+    ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "a `.handlers` list changed: a.py:2"),
     ("handlers assigned with an annotation", {"a.py": "def f(log, h):\n    log.handlers: list = [h]\n"},
-     "log handler added: a.py:2"),
+     "a `.handlers` list changed: a.py:2"),
     # Rarer ways to install a handler (#40).
     ("the last-resort handler replaced", {"a.py": "import logging\nlogging.lastResort = logging.NullHandler()\n"},
-     "log handler added: a.py:2"),
+     "`lastResort` assigned: a.py:2"),
     ("logging.config imported by name",
      {"a.py": "import importlib\nimportlib.import_module('logging.config').dictConfig({})\n"}, "logging.config imported by name: a.py:2"),
     ("logging.config imported by __import__", {"a.py": "__import__('logging.config')\n"}, "logging.config imported by name: a.py:1"),
     ("another module imported by name", {"a.py": "import importlib\nimportlib.import_module('json')\n"}, None),
     ("a module name not known until run time", {"a.py": "import importlib\ndef f(n):\n    return importlib.import_module(n)\n"}, None),
+    # Each refusal names its own cause, and the list one says what to do when the list is not a logger's (#39).
+    ("a registry of its own called handlers", {"a.py": "class Bus:\n    def __init__(self):\n        self.handlers = {}\n"},
+     "a `.handlers` list changed: a.py:3 (L1: no log handler is added by hand; rename the attribute if it is not a logger's)"),
+    ("the last-resort handler switched off", {"a.py": "import logging\nlogging.lastResort = None\n"},
+     "`lastResort` assigned: a.py:2"),
     ("the last-resort handler only read", {"a.py": "import logging\nx = logging.lastResort\n"}, None),
     ("handlers only read", {"a.py": "def f(log):\n    return len(log.handlers), list(log.handlers)\n"}, None),
     ("another list appended to", {"a.py": "def f(items, x):\n    items.append(x)\n    items.rows.append(x)\n"}, None),
@@ -342,6 +347,12 @@ HANDLER_CASES += [
     ("a plain import, then a handler that is not a name",
      {"a.py": "from builtins import Exception\nERRS = (ValueError,)\n" + HANDLER.format(name="ERRS[0]")}, None),
 ]
+
+
+@pytest.mark.parametrize("source", ["import logging\nlogging.lastResort = None\n", "def f(log, h):\n    log.handlers = [h]\n"])
+def test_a_refusal_that_is_not_an_added_handler_does_not_say_one_was_added(tmp_path, source):
+    code, output = run_in_repo(tmp_path, step_script(HANDLER_STEP), {"a.py": source})   # the wrong cause #39 reported
+    assert code != 0 and "log handler added" not in output
 
 
 @pytest.mark.parametrize("label,files,expect", HANDLER_CASES, ids=[c[0] for c in HANDLER_CASES])
