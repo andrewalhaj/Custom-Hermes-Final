@@ -306,7 +306,7 @@ HANDLER_CASES += [
     ("a module name not known until run time", {"a.py": "import importlib\ndef f(n):\n    return importlib.import_module(n)\n"}, None),
     # Each refusal names its own cause, and the list one says what to do when the list is not a logger's (#39).
     ("a registry of its own called handlers", {"a.py": "class Bus:\n    def __init__(self):\n        self.handlers = {}\n"},
-     "rename the attribute if it is not a logger's"),
+     "a `.handlers` list changed: a.py:3 (L1: no log handler is added by hand; rename the attribute if it is not a logger's)"),
     ("the last-resort handler switched off", {"a.py": "import logging\nlogging.lastResort = None\n"},
      "`lastResort` assigned: a.py:2"),
     ("the last-resort handler only read", {"a.py": "import logging\nx = logging.lastResort\n"}, None),
@@ -347,6 +347,12 @@ HANDLER_CASES += [
     ("a plain import, then a handler that is not a name",
      {"a.py": "from builtins import Exception\nERRS = (ValueError,)\n" + HANDLER.format(name="ERRS[0]")}, None),
 ]
+
+
+@pytest.mark.parametrize("source", ["import logging\nlogging.lastResort = None\n", "def f(log, h):\n    log.handlers = [h]\n"])
+def test_a_refusal_that_is_not_an_added_handler_does_not_say_one_was_added(tmp_path, source):
+    code, output = run_in_repo(tmp_path, step_script(HANDLER_STEP), {"a.py": source})   # the wrong cause #39 reported
+    assert code != 0 and "log handler added" not in output
 
 
 @pytest.mark.parametrize("label,files,expect", HANDLER_CASES, ids=[c[0] for c in HANDLER_CASES])
