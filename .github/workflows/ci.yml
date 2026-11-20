@@ -295,6 +295,6 @@ jobs:
           fence = "~" * (max(map(len, re.findall("~+", text)), default=7) + 1)   # nothing in the report can close it
           sys.stdout.buffer.write(f"{fence}text\n{text.rstrip(chr(10))}\n{fence}\n".encode("utf-8"))
           PY
-          # 0 = ship; 3 = fix first; 4 = an incomplete report; 5 = the reviewer was offered a tool it must not
-          # have; anything else = the review did not run
+          # 0 = ship; 3 = fix first; 4 = an incomplete report; 5 = the tool-limit check failed (a tool
+          # beyond reading, or the read tools not all listed); anything else = the review did not run
           exit "$code"

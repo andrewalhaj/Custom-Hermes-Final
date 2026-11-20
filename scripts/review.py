@@ -11,7 +11,7 @@ without a change here.
 
 Exit 0: every item answered, none failed, verdict ship. Exit 3: a rule failed or the verdict is fix_first.
 Exit 4: the report is not a complete review. Exit 5: with --check-tools, the session reported a tool beyond
-reading files, and nothing was reviewed.
+reading files, or did not list its own read tools, and nothing was reviewed.
 Anything else that goes wrong (no `claude`, no login, no structured output) crashes with a traceback and
 exit 1: it is not a review. Exit 2: bad arguments, the branch not checked out, or uncommitted changes.
 """
@@ -180,7 +180,7 @@ def main(argv):
                         help="print the issue's text as the reviewer would get it, and stop")
     parser.add_argument("--check-tools", action="store_true",
                         help="first ask a session under the reviewer's limits which tools it has, and stop if any "
-                             "goes beyond reading files")
+                             "goes beyond reading files or the read tools are not all listed")
     args = parser.parse_args(argv)
 
     def read(*command):   # a command that only prints; a failure crashes, and its stderr reaches the terminal
