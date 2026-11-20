@@ -332,7 +332,7 @@ Ruff is one part of the check. Its diagnostics include:
 - Some broad `Exception` or `BaseException` handlers (`BLE001`).[11]
 - `try`-`except`-`pass` on a catch-everything block (`S110`). By default it flags only `Exception`, `BaseException` and a bare `except:`.[13][14]
 - A bare `except:` (`E722`).
-- `try`-`except`-`continue` on a catch-everything block (`S112`), and `contextlib.suppress`, a catch-everything handler `BLE001` does not see (banned through `TID251`) (C2).
+- `try`-`except`-`continue` on a catch-everything block (`S112`), and `contextlib.suppress` (banned through `TID251`), which hides a failure without recording it, and which `BLE001` does not see even when it suppresses `Exception` (C2, F3).
 - Logging forms L1 rules out: `logging.basicConfig` (banned through `TID251`), calls on the root logger and `getLogger(__file__)` (`LOG`), and f-strings, `.format` or `+` in a log call instead of `%`-style arguments (`G`). Review catches `getLogger` with no name or with a literal name. The configuration step refuses any `select`, which would replace this selection, and an `ignore`, `extend-ignore` or per-file ignore of any of these rules or their codes. A `noqa` comment can still silence them, because the ban below covers only `BLE001`, `S110` and `E722` (#19); review catches that.
 - Any suppression of `BLE001`, `S110` or `E722`: a `noqa` comment, a `ruff: ignore`, `ruff: disable` or `ruff: file-ignore` comment, a file-level `ruff: noqa` or `flake8: noqa`, ruff configuration that turns a rule off, globally or per file, or that excludes files or lives outside the root `pyproject.toml` (separate CI steps, section 8.2).
 
@@ -416,7 +416,7 @@ extend-select = ["BLE001", "S110", "S112", "G", "LOG", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "logging.basicConfig".msg = "L1: Hermes owns logging configuration"
-"contextlib.suppress".msg = "C2: a catch-everything handler BLE001 does not see"
+"contextlib.suppress".msg = "C2, F3: suppress hides a failure without recording it; catch by name and record it"
 ```
 
 - `ruff check .` covers every Python file in the repository, tests included. All ruff configuration lives in the root `pyproject.toml`: no `ruff.toml`, `.ruff.toml` or nested `pyproject.toml`, no `exclude` or `extend-exclude`, and no per-file ignores for these rules. With one configuration file, the probe step proves the rules are on for every file, and the coverage step proves every tracked Python file is linted, whatever would otherwise drop it (`include`, `.gitignore`, or ruff's default excludes such as `dist/`).

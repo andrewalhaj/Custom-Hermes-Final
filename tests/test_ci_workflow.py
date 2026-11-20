@@ -22,7 +22,7 @@ NOQA = "no" + "qa"  # kept apart so the noqa ban does not match this file
 # The repository's lint configuration, banned-api table first, so a case can append keys to [tool.ruff.lint].
 CONFIG = """[tool.ruff.lint.flake8-tidy-imports.banned-api]
 "logging.basicConfig".msg = "L1: Hermes owns logging configuration"
-"contextlib.suppress".msg = "C2: a catch-everything handler BLE001 does not see"
+"contextlib.suppress".msg = "C2, F3: suppress hides a failure without recording it; catch by name and record it"
 
 [tool.ruff.lint]
 extend-select = ["BLE001", "S110", "S112", "G", "LOG", "TID251"]
