@@ -258,7 +258,8 @@ BROAD_FORMS = {
 HANDLER_CASES = [
     ("clean", {"a.py": CODE}, None),
     ("a named exception", {"a.py": "def f():\n    try:\n        x = 1\n    except ValueError:\n        raise\n"}, None),
-    ("a handler named Exception elsewhere", {"a.py": "class Exception2(Exception):\n    pass\n"}, None),
+    ("a name that only contains Exception",
+     {"a.py": "def f():\n    try:\n        x = 1\n    except ExceptionGroup:\n        raise\n"}, None),
 ]
 HANDLER_CASES += [(f"broad, {label}", {"pkg/a.py": body}, "broad handler outside the wrappers: pkg/a.py:")
                   for label, body in BROAD_FORMS.items()]
