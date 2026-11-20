@@ -614,6 +614,8 @@ Some failures raise nothing. A daily check flags any scheduled job other than th
 
 Hermes owns logging for everything that runs inside it.[14]
 
+**Status.** The first list below describes Hermes v0.23.1. Nothing in the second list is built yet: the key patterns, the forced redaction and the one helper are planned (#67 in this repository). What exists is the lint that holds new code to rule L1 (CONTRIBUTING.md 5.4 and 8.2).
+
 - It writes `agent.log`, `errors.log` (WARNING and above) and, in gateway mode, `gateway.log` under `~/.hermes/logs/`.
 - It rotates them: 5 MB and 3 backups by default, set by `logging.max_size_mb` and `logging.backup_count`.
 - It passes every line through a redacting formatter.
