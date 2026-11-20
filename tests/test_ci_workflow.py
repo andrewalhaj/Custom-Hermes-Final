@@ -289,6 +289,8 @@ HANDLER_CASES += [
     ("handlers.insert", {"a.py": "def f(log, h):\n    log.handlers.insert(0, h)\n"}, "log handler added: a.py:2"),
     ("handlers assigned", {"a.py": "def f(log, h):\n    log.handlers = [h]\n"}, "log handler added: a.py:2"),
     ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "log handler added: a.py:2"),
+    ("handlers assigned with an annotation", {"a.py": "def f(log, h):\n    log.handlers: list = [h]\n"},
+     "log handler added: a.py:2"),
     ("handlers only read", {"a.py": "def f(log):\n    return len(log.handlers), list(log.handlers)\n"}, None),
     ("another list appended to", {"a.py": "def f(items, x):\n    items.append(x)\n    items.rows.append(x)\n"}, None),
     ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
