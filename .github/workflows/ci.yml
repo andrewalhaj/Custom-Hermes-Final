@@ -190,8 +190,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.ref }}   # the branch by name: the script checks it is checked out
+          ref: ${{ github.event.pull_request.head.sha }}   # the commit this run is for
           fetch-depth: 0   # the script diffs against origin/main
+      - name: name the checkout as the branch
+        shell: bash
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: git checkout -B "$BRANCH"   # the script checks that the branch is checked out by name
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
         with: { python-version: "3.14" }
       - run: npm install --global @anthropic-ai/claude-code@2.1.322
@@ -223,6 +228,7 @@ jobs:
           code=$?
           set -e
           cat "$RUNNER_TEMP/review.txt"
-          { echo '```text'; cat "$RUNNER_TEMP/review.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # A tilde fence: a report that quotes a ``` fence cannot close it.
+          { echo '~~~~~~~~text'; cat "$RUNNER_TEMP/review.txt"; echo '~~~~~~~~'; } >> "$GITHUB_STEP_SUMMARY"
           # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
           exit "$code"
