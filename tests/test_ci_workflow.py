@@ -487,7 +487,12 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
 def test_the_review_checks_out_the_branch_with_its_history_and_a_pinned_claude_code():
     job = review_job()
     checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout"))
-    assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.ref }}", "fetch-depth": 0}
+    # The commit this run is for, then named as the branch, which the script requires. A re-run after a newer
+    # push must not review the newer code under the older commit's check.
+    assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.sha }}", "fetch-depth": 0}
+    name = review_step("name the checkout as the branch")
+    assert name["run"].strip().startswith('git checkout -B "$BRANCH"')
+    assert name["env"] == {"BRANCH": "${{ github.event.pull_request.head.ref }}"}
     commands = [s.get("run", "") for s in job["steps"]]
     assert "npm install --global @anthropic-ai/claude-code@2.1.322" in commands
 
@@ -527,7 +532,7 @@ def run_review_step(tmp_path, exit_with):
     """Run the review step's script with a stand-in for scripts/review.py that prints to both streams and exits."""
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "review.py").write_text(
-        f"import sys\nprint('C3   fail   returns [] on a timeout')\n"
+        f"import sys\nprint('C3   fail   returns [] on a timeout')\nprint('```text a quoted fence')\n"
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
@@ -544,7 +549,9 @@ def test_a_review_that_does_not_ship_fails_the_step_and_still_reaches_the_summar
     assert code == exit_with
     for text in ("C3   fail   returns [] on a timeout", "not a complete review: F3: no answer"):   # stdout and stderr
         assert text in log and text in summary
-    assert summary.startswith("```") and summary.rstrip().endswith("```")   # a block, so the lines stay lines
+    # One block, so the lines stay lines. Its fence is tildes: a report that quotes a ``` fence cannot close it.
+    assert summary.startswith("~~~~~~~~text\n") and summary.endswith("\n~~~~~~~~\n")
+    assert "```text a quoted fence" in summary and summary.count("~~~~~~~~") == 2
 
 
 def test_a_review_that_ships_passes_the_step(tmp_path):
