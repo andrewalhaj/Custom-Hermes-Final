@@ -3,6 +3,8 @@
 import pathlib
 import re
 
+import pytest
+
 from custom_build import failures
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -58,6 +60,17 @@ def test_the_catalog_says_not_a_failure_for_exactly_the_codes_the_guide_does():
     assert marked == set(failures.CATALOG) - failure_codes()
 
 
+def not_showable(shown):
+    """The codes in `shown` that are not failure codes: unknown ones, and events that are not failures."""
+    return set(shown) - failure_codes()
+
+
 def test_only_a_failure_code_can_be_shown_in_a_turn():
     assert isinstance(failures.SHOWN_IN_TURN, frozenset)
-    assert failures.SHOWN_IN_TURN <= failure_codes()
+    assert not_showable(failures.SHOWN_IN_TURN) == set()
+
+
+@pytest.mark.parametrize("code", ["db.unreachabel", "host.heartbeat", "write_gate.denied"])
+def test_a_code_that_is_not_a_failure_cannot_be_shown_in_a_turn(code):
+    # The failing case for the test above, which an empty SHOWN_IN_TURN cannot provide.
+    assert not_showable({"db.unreachable", code}) == {code}
