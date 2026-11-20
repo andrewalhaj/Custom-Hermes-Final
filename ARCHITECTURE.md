@@ -256,8 +256,8 @@ Secrets are redacted before anything is stored or sent.
 
 No ranking change ships without numbers from the eval set.
 
-**CHA Final lexical baseline.** [The synthetic fixture](evals/lexical.toml) records explicit facts and one
-expected fact ID or an abstention per case. [The runner](evals/lexical.py) seeds an empty migrated
+**CHA Final lexical baseline.** The synthetic fixture, `evals/lexical.toml`, records explicit facts and one
+expected fact ID or an abstention per case. The runner, `evals/lexical.py`, seeds an empty migrated
 disposable database, then loads the plugin with Hermes v0.23.1 and calls its provider's `prefetch()` in a
 new session per case. The JSON report identifies the Hermes commit and fixture SHA-256, and gives
 the returned fact IDs, Recall@5, mean reciprocal rank (MRR), correct abstentions and named recall failures. Fixture text is
