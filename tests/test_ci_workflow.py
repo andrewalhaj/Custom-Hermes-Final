@@ -282,6 +282,30 @@ HANDLER_CASES += [
 ]
 
 
+# A broad handler written through another name is still broad (#18). The check follows assignments and
+# imports anywhere in the file, whatever their scope, so it errs toward refusing.
+HANDLER = "def f():\n    try:\n        x = 1\n    except {name}:\n        raise\n"
+ALIAS_FORMS = {
+    "an assignment": "E = Exception\n" + HANDLER.format(name="E"),
+    "a chain of assignments": "A = BaseException\nB = A\n" + HANDLER.format(name="B"),
+    "a chain written backwards": "def g():\n    return B\nB = A\nA = Exception\n" + HANDLER.format(name="B"),
+    "a tuple held in a name": "ERRORS = (ValueError, Exception)\n" + HANDLER.format(name="ERRORS"),
+    "an alias inside a tuple": "E = Exception\n" + HANDLER.format(name="(ValueError, E)"),
+    "an annotated assignment": "E: type = Exception\n" + HANDLER.format(name="E"),
+    "an import under another name": "from builtins import Exception as E\n" + HANDLER.format(name="E"),
+    "an assignment inside the function": "def f():\n    E = Exception\n    try:\n        x = 1\n    except E:\n        raise\n",
+    "a walrus": "if (E := Exception):\n    pass\n" + HANDLER.format(name="E"),
+}
+HANDLER_CASES += [(f"alias, {label}", {"pkg/a.py": body}, "broad handler outside the wrappers: pkg/a.py:")
+                  for label, body in ALIAS_FORMS.items()]
+HANDLER_CASES += [
+    ("a name for a named exception", {"a.py": "E = ValueError\n" + HANDLER.format(name="E")}, None),
+    ("a name for a tuple of named exceptions", {"a.py": "E = (ValueError, KeyError)\n" + HANDLER.format(name="E")}, None),
+    ("a subclass of Exception", {"a.py": "class Mine(Exception):\n    pass\n" + HANDLER.format(name="Mine")}, None),
+    ("an alias never used in a handler", {"a.py": "E = Exception\nraise E('x')\n"}, None),
+]
+
+
 @pytest.mark.parametrize("label,files,expect", HANDLER_CASES, ids=[c[0] for c in HANDLER_CASES])
 def test_handler_check(tmp_path, label, files, expect):
     check(tmp_path, step_script(HANDLER_STEP), files, expect)
