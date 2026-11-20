@@ -290,6 +290,15 @@ model answers, and anonymized real misses are outside this baseline.
 
 The memory store is a Supabase project: Postgres with the `pgvector` extension. It holds the facts, the session chunks and the events, and runs the hybrid search inside SQL functions.
 
+**Status.** `migrations/0001_memory_store.sql` (#7 in this repository) creates the `memory` schema with three tables and one role:
+
+- `memory.facts`: explicit facts only, with no vectors (`id`, `body`, `basis`, `project`, `source`, `session_id`, `created_at`);
+- `memory.events`, as in 4.2;
+- `memory.schema_level`, set to 1;
+- the group role `memory_agent`, with the access in 4.3: select and insert on facts, select on the level, and select and insert on events only under its own login's name. It has no update, delete or schema rights.
+
+It has been applied to throwaway Postgres 17 only, not to Supabase. The rest of this section is the plan, carried over from the previous build: vectors, word search, the fact lifecycle, session chunks, `memory_maintenance`, retention, the viewer role and its migration numbers `0002` to `0009`. Each part arrives as a forward migration with the code that uses it (rule 5).
+
 ### 4.1 Design rules
 
 1. **One meaning for each column.** What a row is, where it came from, which project and session it belongs to and which machine wrote it are columns, never tags or fields in a shared blob.
@@ -301,7 +310,7 @@ The memory store is a Supabase project: Postgres with the `pgvector` extension. 
 
 ### 4.2 Schema
 
-`memory.events` and the `memory` schema are created by `migrations/0001_memory_events.sql`, and `memory.facts` by `migrations/0002_memory_facts.sql`, which also installs the `vector` extension where it is missing; those files are their source of truth, and the block below still shows them for reading in one place. The rest of this section is the plan. Each table's migration file becomes its source of truth when it merges, and this section is updated to match. A new migration creates only what earlier ones did not.
+`migrations/0001_memory_store.sql` is the source of truth for what ships (section 4, Status). The block below is the planned full schema from the previous build, kept for reading in one place; it is not what is applied. Each table's migration file becomes its source of truth when it merges, and this section is updated to match. A new migration creates only what earlier ones did not.
 
 ```sql
 create extension if not exists vector;
