@@ -162,6 +162,7 @@ jobs:
           for section in (ruff, ruff.get("lint", {})):
               for key in ("exclude", "extend-exclude"):
                   bad += [f"{key}: {pattern}" for pattern in section.get(key, [])]
+              bad += [f"select: {c}" for c in section.get("select", [])]   # replaces the defaults; use extend-select (8.2)
               for key in ("ignore", "extend-ignore"):
                   bad += [f"{key}: {c}" for c in section.get(key, []) if covers(c)]
               for key in ("per-file-ignores", "extend-per-file-ignores"):
