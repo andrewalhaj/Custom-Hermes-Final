@@ -41,10 +41,10 @@ def test_row_level_security_hides_rows_the_role_has_no_policy_for(db):
         assert conn.execute("select count(*) from memory.facts where id = %s", (fact,)).fetchone() == (1,)
 
 
-def add_fact(conn, body="The disposable store is Postgres 17."):
+def add_fact(conn, body="The disposable store is Postgres 17.", source=AGENT):
     return conn.execute(
-        "insert into memory.facts (body, basis, source) values (%s, 'user_stated', current_user) returning id",
-        (body,),
+        "insert into memory.facts (body, basis, source) values (%s, 'user_stated', %s) returning id",
+        (body, source),
     ).fetchone()[0]
 
 
@@ -61,6 +61,12 @@ def test_a_new_connection_reads_a_fact_another_committed(db):
     with psycopg.connect(db["agent"]) as conn:
         assert conn.execute("select body, basis, source, project from memory.facts where id = %s", (fact,)).fetchone() \
             == ("The disposable store is Postgres 17.", "user_stated", AGENT, None)
+
+
+def test_the_agent_cannot_save_a_fact_under_another_name(db):
+    # 0002 (#25): a fact's source is the login that wrote it, as an event's is.
+    with psycopg.connect(db["agent"]) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        add_fact(conn, source="host-b")
 
 
 def test_the_agent_records_an_event_under_its_own_name(db):
