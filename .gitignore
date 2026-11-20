@@ -9,11 +9,13 @@
 !/CONTRIBUTING.md
 !/OPERATIONS.md
 !/pyproject.toml
+!/hermes-requirements.txt
 !/.github/
 !/.githooks/
 !/tests/
 !/scripts/
 !/migrations/
+!/custom_build/
 
 /.github/*
 !/.github/dependabot.yml
@@ -31,3 +33,6 @@
 !/scripts/*.py
 /migrations/*
 !/migrations/*.sql
+/custom_build/*
+!/custom_build/*.py
+!/custom_build/plugin.yaml
