@@ -282,7 +282,9 @@ The memory store is a Supabase project: Postgres with the `pgvector` extension. 
 - `memory.schema_level`, set to 1;
 - the group role `memory_agent`, with the access in 4.3: select and insert on facts, select on the level, and select and insert on events only under its own login's name. It has no update, delete or schema rights.
 
-It has been applied to throwaway Postgres 17 only, not to Supabase. `0001` also ships what the previous build added in its `0006` (the store level) and `0007` (events only under the login's own name). The rest of this section is the plan, carried over from the previous build: vectors, word search, the fact lifecycle, session chunks, `memory_maintenance`, retention and the viewer role. The migration numbers it names are the previous build's; here each part arrives as a forward migration with the code that uses it (rule 5).
+`migrations/0002_memory_facts_own_source.sql` (#25 in this repository) makes the role insert facts only under its own login's name too, and sets the level to 2.
+
+Both have been applied to throwaway Postgres 17 only, not to Supabase. `0001` also ships what the previous build added in its `0006` (the store level) and `0007` (events only under the login's own name). The rest of this section is the plan, carried over from the previous build: vectors, word search, the fact lifecycle, session chunks, `memory_maintenance`, retention and the viewer role. The migration numbers it names are the previous build's; here each part arrives as a forward migration with the code that uses it (rule 5).
 
 ### 4.1 Design rules
 
