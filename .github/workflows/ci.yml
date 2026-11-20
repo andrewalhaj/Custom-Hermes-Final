@@ -177,8 +177,12 @@ jobs:
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
-      && github.actor != 'dependabot[bot]'
+      && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # a hung reviewer must not hold a runner for hours
+    concurrency:   # a new push replaces the review of the old one; each review draws on the subscription
+      group: review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: read
       issues: read
@@ -212,4 +216,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}   # read-only, for `gh issue view`
           BRANCH: ${{ github.event.pull_request.head.ref }}
           ISSUE: ${{ steps.issue.outputs.issue }}
-        run: python scripts/review.py "$BRANCH" "$ISSUE" | tee "$GITHUB_STEP_SUMMARY"
+        run: |
+          # The report, with any reason it is incomplete (stderr), goes to the log and to the job summary.
+          set +e
+          python scripts/review.py "$BRANCH" "$ISSUE" > "$RUNNER_TEMP/review.txt" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/review.txt"
+          { echo '```text'; cat "$RUNNER_TEMP/review.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
+          exit "$code"
