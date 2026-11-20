@@ -546,6 +546,8 @@ Hermes's memory tool enforces the size limits of `MEMORY.md` and `USER.md` itsel
 
 Every point of failure has a name, and a failure, an empty result and a fallback can always be told apart. The rules are F1–F6 in CONTRIBUTING.md; this section describes the mechanism.
 
+**Status.** `custom_build/failures.py` holds the catalog below, with `SEVERITY` and `SHOWN_IN_TURN` (#61 in this repository), and `tests/test_failures.py` holds it to the table in 6.1. `SHOWN_IN_TURN` is empty, because no code that runs in a turn is written, and the gates' decision codes are recorded as events that are not failures, so they have no severity. Nothing else in this section is built yet: the recording helper, the two wrappers, the daily report and the absence checks are planned.
+
 ### 6.1 The failure catalog
 
 The catalog is one module in the package. It lists every failure code; beside it, `SEVERITY` gives each failure code's severity (high, medium or low) and `SHOWN_IN_TURN` names the codes the build shows in a turn, and the daily report prints both (#35). A test fails the build if a failure code has no severity. The catalog also lists the events that are not failures, such as `host.heartbeat`, because the recording helper takes only codes in the catalog (CONTRIBUTING.md rules L3 and F6). A test fails the build if any handler or fallback emits a code that is not in it, or emits none.
