@@ -71,6 +71,18 @@ def test_workflow_runs_on_pull_requests_and_main():
     assert python["with"]["python-version"] == "3.14"
 
 
+POSTGRES_IMAGE = "postgres:17.11@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f"
+
+
+def test_tests_get_a_throwaway_postgres_17_to_apply_the_migrations_to():
+    job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["tests"]
+    service = job["services"]["postgres"]
+    assert service["image"] == POSTGRES_IMAGE
+    assert "5432:5432" in service["ports"]
+    assert job["env"]["TEST_DATABASE_URL"].startswith("postgresql://postgres:")
+    assert job["env"]["TEST_DATABASE_URL"].endswith("@localhost:5432/postgres")
+
+
 def test_the_dev_tools_are_installed_from_the_pinned_group_before_they_run():
     commands = [s.get("run", "") for s in steps()]
     install = "pip install --group dev"   # ruff, pytest and PyYAML, pinned once in pyproject.toml (8.2)
