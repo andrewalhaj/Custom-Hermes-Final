@@ -106,8 +106,8 @@ def test_noqa_ban_fails_when_git_fails(tmp_path):
 
 
 # ruff honours more suppression forms than the pattern above knows, so a second step asks ruff itself:
-# with every suppression comment ignored, none of the three rules may fire anywhere.
-UNSUPPRESSED_STEP = "no broad catch once every suppression comment is ignored"
+# with every suppression comment ignored, none of the protected rules may fire anywhere.
+UNSUPPRESSED_STEP = "no protected rule fires once every suppression comment is ignored"
 BROAD = {"BLE001": "try:\n    x = 1\nexcept Exception:{line}\n    x = 2\n",
          "S110": "try:\n    x = 1\nexcept Exception:{line}\n    pass{line}\n",
          "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n",
