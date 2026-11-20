@@ -632,7 +632,7 @@ def run_review_step(tmp_path, exit_with, filler=0, char="x"):
     (tmp_path / "scripts" / "review.py").write_text(
         f"import sys\nprint('C3   fail   returns [] on a timeout')\nprint('```text a quoted fence')\n"
         f"print('~' * 12)\nprint('::warning::a forged annotation')\nsys.stdout.flush()\n"
-        f"sys.stdout.buffer.write(({char!r} * {filler} + chr(10)).encode('utf-8'))\nprint('the last line')\n"
+        f"sys.stdout.buffer.write(({char!r} * {filler} + chr(10)).encode('utf-8', 'surrogateescape'))\nprint('the last line')\n"
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
@@ -680,6 +680,11 @@ def test_a_report_too_big_for_the_summary_is_cut_there_and_whole_in_the_log(tmp_
 def test_a_cut_inside_a_character_leaves_a_valid_summary(tmp_path, char):
     code, _, summary = run_review_step(tmp_path, 3, filler=600_000, char=char)   # run_review_step decodes it
     assert code == 3 and "report cut here" in summary and len(summary.encode()) < 1_000_000
+
+
+def test_a_byte_that_is_not_utf8_shows_in_the_summary_and_is_not_dropped(tmp_path):
+    code, _, summary = run_review_step(tmp_path, 3, filler=1, char="\udcff")   # written as the lone byte 0xff
+    assert code == 3 and "\ufffd" in summary and "the last line" in summary
 
 
 def read_issue(tmp_path, gh_exit):
