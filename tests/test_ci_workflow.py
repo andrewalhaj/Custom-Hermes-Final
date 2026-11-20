@@ -489,8 +489,10 @@ def test_the_review_checks_out_the_branch_with_its_history_and_a_pinned_claude_c
     checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout"))
     # The commit this run is for, then named as the branch, which the script requires. A re-run after a newer
     # push must not review the newer code under the older commit's check.
-    assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.sha }}", "fetch-depth": 0}
-    name = review_step("name the checkout as the branch")
+    # persist-credentials false: the job's token must not sit in .git/config, where the reviewer can read it.
+    assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.sha }}", "fetch-depth": 0,
+                                "persist-credentials": False}
+    name =review_step("name the checkout as the branch")
     assert name["run"].strip().startswith('git checkout -B "$BRANCH"')
     assert name["env"] == {"BRANCH": "${{ github.event.pull_request.head.ref }}"}
     commands = [s.get("run", "") for s in job["steps"]]
@@ -533,6 +535,7 @@ def run_review_step(tmp_path, exit_with):
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "review.py").write_text(
         f"import sys\nprint('C3   fail   returns [] on a timeout')\nprint('```text a quoted fence')\n"
+        f"print('~' * 12)\nprint('::warning::a forged annotation')\n"
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
@@ -549,9 +552,17 @@ def test_a_review_that_does_not_ship_fails_the_step_and_still_reaches_the_summar
     assert code == exit_with
     for text in ("C3   fail   returns [] on a timeout", "not a complete review: F3: no answer"):   # stdout and stderr
         assert text in log and text in summary
-    # One block, so the lines stay lines. Its fence is tildes: a report that quotes a ``` fence cannot close it.
-    assert summary.startswith("~~~~~~~~text\n") and summary.endswith("\n~~~~~~~~\n")
-    assert "```text a quoted fence" in summary and summary.count("~~~~~~~~") == 2
+    # One block, so the lines stay lines. Its fence is tildes, longer than any run of tildes in the report, so
+    # neither a quoted ``` fence nor a line of tildes can close it.
+    lines = summary.splitlines()
+    fence = lines[-1]
+    assert set(fence) == {"~"} and len(fence) > 12 and lines[0] == fence + "text"
+    assert "```text a quoted fence" in lines and "~" * 12 in lines
+    # The report is model output: the runner must not act on a line that looks like a workflow command.
+    stop = next(line for line in log.splitlines() if line.startswith("::stop-commands::"))
+    token = stop.removeprefix("::stop-commands::")
+    assert len(token) >= 32
+    assert log.index(stop) < log.index("::warning::a forged annotation") < log.index(f"::{token}::")
 
 
 def test_a_review_that_ships_passes_the_step(tmp_path):
