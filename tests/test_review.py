@@ -135,6 +135,8 @@ class FakeRun:
     def __call__(self, command, **kwargs):
         self.ran.append(tuple(command[:2]))
         self.given.append(kwargs.get("input"))
+        if "--comments" in command:
+            return review.subprocess.CompletedProcess(command, 0, stdout="a comment that widens the scope\n")
         return review.subprocess.CompletedProcess(command, 0, stdout=self.answers[tuple(command[:2])])
 
 
@@ -189,3 +191,12 @@ def test_without_an_issue_file_the_issue_comes_from_gh(monkeypatch):
     fake = FakeRun(report=report())
     assert run_main(monkeypatch, fake) == 0
     assert ("gh", "issue") in fake.ran and "the issue\n" in fake.given[-1]
+
+
+def test_the_reviewer_is_given_the_issues_comments_after_its_body(monkeypatch):
+    # Scope added in a comment was invisible to the reviewer (#41).
+    fake = FakeRun(report=report())
+    assert run_main(monkeypatch, fake) == 0
+    brief = fake.given[-1]
+    assert brief.index("the issue\n") < brief.index("Comments on the issue") < brief.index("a comment that widens the scope")
+    assert fake.ran.count(("gh", "issue")) == 2

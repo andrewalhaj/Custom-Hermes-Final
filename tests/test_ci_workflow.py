@@ -568,7 +568,7 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
 def test_the_issue_text_is_fetched_in_its_own_step_with_the_github_token():
     step = review_step("read the issue")
     assert step["env"] == {"GH_TOKEN": "${{ github.token }}", "ISSUE": "${{ steps.issue.outputs.issue }}"}
-    assert step["run"].strip() == 'gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"'
+    assert step["run"].count('gh issue view "$ISSUE"') == 2 and 'gh issue view "$ISSUE" --comments' in step["run"]
     names = [s.get("name") for s in review_job()["steps"]]
     assert names.index(ISSUE_STEP) < names.index("read the issue") < names.index("review the branch")
 
@@ -716,7 +716,8 @@ def read_issue(tmp_path, gh_exit):
 
 
 def test_the_issue_step_writes_what_gh_prints_and_fails_when_gh_fails(tmp_path):
-    assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n")
+    # The body, then the comments, which `gh issue view --comments` prints without the body (#41).
+    assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n\nComments on the issue:\ngh issue view 7 --comments\n")
     (tmp_path / "failed").mkdir()
     assert read_issue(tmp_path / "failed", 1)[0] == 1
 
