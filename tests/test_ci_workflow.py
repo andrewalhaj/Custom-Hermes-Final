@@ -466,7 +466,8 @@ def test_the_review_runs_only_where_the_secret_can_be_read():
     condition = review_job()["if"]
     assert "github.event_name == 'pull_request'" in condition
     assert "github.event.pull_request.head.repo.full_name == github.repository" in condition   # not a fork
-    assert "github.actor != 'dependabot[bot]'" in condition
+    # Who opened it, not who triggered this run: a maintainer's push to Dependabot's branch must not start it.
+    assert "github.event.pull_request.user.login != 'dependabot[bot]'" in condition
     assert " || " not in condition   # every condition must hold
 
 
@@ -478,7 +479,7 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
     assert WORKFLOW.read_text().count(REVIEW_TOKEN) == 2   # the name and the secret, on one line
     step = review_step("review the branch")
     assert step["env"][REVIEW_TOKEN] == "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
-    assert step["run"].strip() == 'python scripts/review.py "$BRANCH" "$ISSUE" | tee "$GITHUB_STEP_SUMMARY"'
+    assert 'python scripts/review.py "$BRANCH" "$ISSUE"' in step["run"]
     assert step["env"]["BRANCH"] == "${{ github.event.pull_request.head.ref }}"   # in env, never in the script
     assert "${{" not in step["run"]
 
@@ -520,3 +521,37 @@ def test_the_issue_step_takes_the_body_from_the_environment():
     step = review_step(ISSUE_STEP)
     assert step["env"] == {"BODY": "${{ github.event.pull_request.body }}"} and "${{" not in step["run"]
     assert review_step("review the branch")["env"]["ISSUE"] == "${{ steps.issue.outputs.issue }}" and step["id"] == "issue"
+
+
+def run_review_step(tmp_path, exit_with):
+    """Run the review step's script with a stand-in for scripts/review.py that prints to both streams and exits."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "review.py").write_text(
+        f"import sys\nprint('C3   fail   returns [] on a timeout')\n"
+        f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
+    summary = tmp_path / "summary.md"
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
+                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
+                                 "BRANCH": "feat/x", "ISSUE": "7", "GITHUB_STEP_SUMMARY": str(summary),
+                                 "RUNNER_TEMP": str(tmp_path)})
+    return result.returncode, result.stdout + result.stderr, summary.read_text()
+
+
+@pytest.mark.parametrize("exit_with", [3, 4, 1])   # fix first, an incomplete report, a crash
+def test_a_review_that_does_not_ship_fails_the_step_and_still_reaches_the_summary(tmp_path, exit_with):
+    code, log, summary = run_review_step(tmp_path, exit_with)
+    assert code == exit_with
+    for text in ("C3   fail   returns [] on a timeout", "not a complete review: F3: no answer"):   # stdout and stderr
+        assert text in log and text in summary
+    assert summary.startswith("```") and summary.rstrip().endswith("```")   # a block, so the lines stay lines
+
+
+def test_a_review_that_ships_passes_the_step(tmp_path):
+    assert run_review_step(tmp_path, 0)[0] == 0
+
+
+def test_the_review_job_cannot_hang_or_pile_up():
+    job = review_job()
+    assert job["timeout-minutes"] == 30
+    assert job["concurrency"] == {"group": "review-${{ github.event.pull_request.number }}", "cancel-in-progress": True}
