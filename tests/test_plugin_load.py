@@ -37,11 +37,25 @@ def hermes(tmp_path, home, *args):
                           timeout=120, check=False)
 
 
-def load(tmp_path):
-    """Hermes's entry for the plugin after ordinary discovery, with the plugin enabled in a throwaway home."""
+def break_register(plugin_dir):
+    """Make the copy's register() raise."""
+    init = plugin_dir / "__init__.py"
+    text = init.read_text(encoding="utf-8")
+    assert "def register(ctx) -> None:\n" in text
+    init.write_text(text.replace("def register(ctx) -> None:\n",
+                                 "def register(ctx) -> None:\n    raise RuntimeError('broken on purpose')\n"),
+                    encoding="utf-8")
+    return plugin_dir
+
+
+def load(tmp_path, *, enabled=True, broken=False):
+    """Hermes's entry for the plugin after ordinary discovery in a throwaway home."""
     home = tmp_path / "home"
-    copy_plugin(home / "plugins" / "custom_build")
-    (home / "config.yaml").write_text("plugins:\n  enabled:\n    - custom_build\n", encoding="utf-8")
+    plugin = copy_plugin(home / "plugins" / "custom_build")
+    if broken:
+        break_register(plugin)
+    names = "\n    - custom_build\n" if enabled else " []\n"
+    (home / "config.yaml").write_text(f"plugins:\n  enabled:{names}", encoding="utf-8")
     result = hermes(tmp_path, home, SCENARIO)
     assert result.returncode == 0, result.stderr[-2000:]
     return json.loads(result.stdout.strip().splitlines()[-1])
@@ -63,6 +77,16 @@ def test_ordinary_load_succeeds(tmp_path):
     assert ordinary_load_ok(entry), entry
 
 
+def test_a_plugin_whose_register_raises_fails_the_load_check(tmp_path):
+    entry = load(tmp_path, broken=True)
+    assert not ordinary_load_ok(entry) and entry["error"] == "broken on purpose"
+
+
+def test_a_plugin_that_is_not_enabled_fails_the_load_check(tmp_path):
+    entry = load(tmp_path, enabled=False)
+    assert not ordinary_load_ok(entry) and "not enabled" in entry["error"]
+
+
 def test_doctor_passes_the_plugin(tmp_path):
     code, output = doctor(tmp_path, PLUGIN)
     assert code == 0, output
@@ -70,11 +94,6 @@ def test_doctor_passes_the_plugin(tmp_path):
 
 
 def test_doctor_fails_a_plugin_whose_register_raises(tmp_path):
-    init = copy_plugin(tmp_path / "custom_build") / "__init__.py"
-    text = init.read_text(encoding="utf-8")
-    assert "def register(ctx) -> None:\n" in text
-    init.write_text(text.replace("def register(ctx) -> None:\n",
-                                 "def register(ctx) -> None:\n    raise RuntimeError('broken on purpose')\n"),
-                    encoding="utf-8")
-    code, output = doctor(tmp_path, tmp_path / "custom_build")
-    assert code != 0, output
+    code, output = doctor(tmp_path, break_register(copy_plugin(tmp_path / "custom_build")))
+    # doctor's own finding, not a crash for some other reason such as Hermes missing
+    assert code != 0 and "Plugin registration failed: broken on purpose" in output, output

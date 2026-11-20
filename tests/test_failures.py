@@ -8,16 +8,22 @@ from custom_build import failures
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def guide_codes():
-    """Every code in the first column of the table under "Initial codes" in ARCHITECTURE.md 6.1."""
+def guide_rows():
+    """(code, is a failure) for every code in the table under "Initial codes" in ARCHITECTURE.md 6.1."""
     guide = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
     table = guide.split("Initial codes:", 1)[1].split("### 6.2", 1)[0]
-    rows = [line for line in table.splitlines() if line.startswith("| `")]
-    return [code for row in rows for code in re.findall(r"`([a-z_.]+)`", row.split("|")[1])]
+    rows = [line.split("|") for line in table.splitlines() if line.startswith("| `")]
+    return [(code, not row[2].strip().startswith(("Not a failure", "Not failures")))
+            for row in rows for code in re.findall(r"`([a-z_.]+)`", row[1])]
+
+
+def guide_codes():
+    return [code for code, _ in guide_rows()]
 
 
 def failure_codes():
-    return {code for code, text in failures.CATALOG.items() if not text.startswith("Not a failure")}
+    """The guide decides which codes are failures, so an edit to the module cannot move one out."""
+    return {code for code, is_failure in guide_rows() if is_failure}
 
 
 def test_the_guide_table_is_read():
@@ -40,9 +46,16 @@ def test_every_failure_code_has_a_severity():
     assert set(failures.SEVERITY.values()) <= {"high", "medium", "low"}
 
 
-def test_the_codes_the_guide_calls_not_failures_have_no_severity():
-    for code in ("action.skipped", "digest.dropped", "job.succeeded", "host.heartbeat", "write_gate.would_ask"):
-        assert code in failures.CATALOG and code not in failures.SEVERITY
+def test_the_guide_marks_both_kinds_of_code():
+    # The failing case for the two tests around this one: a parse that called every code a failure, or none.
+    kinds = dict(guide_rows())
+    assert kinds["db.unreachable"] and kinds["unhandled"] and kinds["job.missed"]
+    assert not kinds["host.heartbeat"] and not kinds["write_gate.denied"] and not kinds["fact_gate.passed"]
+
+
+def test_the_catalog_says_not_a_failure_for_exactly_the_codes_the_guide_does():
+    marked = {code for code, text in failures.CATALOG.items() if text.startswith("Not a failure")}
+    assert marked == set(failures.CATALOG) - failure_codes()
 
 
 def test_only_a_failure_code_can_be_shown_in_a_turn():
