@@ -46,6 +46,19 @@ def test_a_guide_without_its_rules_is_an_error_not_an_empty_checklist():
         review.checklist(GUIDE.replace("- **L", "- **X"))
 
 
+@pytest.mark.parametrize("line", ["- **C11.** A rule in another format.", "- **C11** No full stop.", "**C11. Not a list item.**"])
+def test_a_rule_the_parser_cannot_read_is_an_error_not_a_silent_gap(line):
+    with pytest.raises(ValueError, match="rule IDs in the guide"):
+        review.checklist(GUIDE.replace("\n## 6. Failure rules", f"{line}\n\n## 6. Failure rules"))
+
+
+def test_the_reviewer_may_only_read():
+    # Read-only (W6): file reads, and git and gh commands that only print. Nothing that runs a program.
+    allowed = ("Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+               "Bash(git ls-files:*)", "Bash(git status:*)", "Bash(gh issue view:*)")
+    assert sorted(review.TOOLS) == sorted(allowed)
+
+
 def test_the_schema_requires_an_answer_with_evidence_for_every_item():
     schema = review.schema(ITEMS)
     rules = schema["properties"]["rules"]
