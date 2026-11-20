@@ -125,6 +125,9 @@ UNSUPPRESSED_CASES += [
                        "pkg/sub/b.py": "# ruff: file-ignore[BLE001]\n" + BROAD["BLE001"].format(line="")}, ": BLE001 "),
     ("ruff cannot read its configuration", {"pyproject.toml": "[tool.ruff.lint]\nselect = 1\n", "a.py": CODE},
      "ruff exited 2"),
+    # The ban is on the use, not only the import: inside Hermes `logging.config` is already loaded (#17).
+    ("logging.config used through a plain import",
+     {"pyproject.toml": CONFIG, "a.py": "import logging\n\nlogging.config.dictConfig({})\n"}, ": TID251 "),
 ]
 for rule, body in BROAD.items():
     UNSUPPRESSED_CASES += [(f"{rule} under {form}", {"pyproject.toml": CONFIG, "a.py": body.format(
@@ -166,6 +169,8 @@ PROBE_CASES = [
      "ruff no longer bans contextlib.suppress"),
     ("basicConfig no longer banned", {"pyproject.toml": CONFIG.replace('"logging.basicConfig"', '"logging.shutdown"')},
      "ruff no longer bans logging.basicConfig"),
+    ("logging.config no longer banned", {"pyproject.toml": CONFIG.replace('"logging.config"', '"logging.handlers"')},
+     "ruff no longer bans logging.config"),
 ]
 
 
@@ -277,6 +282,17 @@ HANDLER_CASES += [
     ("addHandler", {"a.py": "import logging\nlogging.getLogger(__name__).addHandler(logging.NullHandler())\n"},
      "log handler added: a.py:2"),
     ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
+    # A handler put straight into a logger's list, without addHandler (#17).
+    ("handlers.append", {"a.py": "import logging\nlogging.root.handlers.append(logging.NullHandler())\n"},
+     "log handler added: a.py:2"),
+    ("handlers.extend", {"a.py": "def f(log, h):\n    log.handlers.extend([h])\n"}, "log handler added: a.py:2"),
+    ("handlers.insert", {"a.py": "def f(log, h):\n    log.handlers.insert(0, h)\n"}, "log handler added: a.py:2"),
+    ("handlers assigned", {"a.py": "def f(log, h):\n    log.handlers = [h]\n"}, "log handler added: a.py:2"),
+    ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "log handler added: a.py:2"),
+    ("handlers assigned with an annotation", {"a.py": "def f(log, h):\n    log.handlers: list = [h]\n"},
+     "log handler added: a.py:2"),
+    ("handlers only read", {"a.py": "def f(log):\n    return len(log.handlers), list(log.handlers)\n"}, None),
+    ("another list appended to", {"a.py": "def f(items, x):\n    items.append(x)\n    items.rows.append(x)\n"}, None),
     ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
      "broad handler outside the wrappers: my mod.py:4 in f"),
 ]
