@@ -7,6 +7,7 @@ dev = ["ruff==0.17.4", "pytest==9.2.0", "pyyaml==6.0.3"]
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "logging.basicConfig".msg = "L1: Hermes owns logging configuration"
 "logging.config".msg = "L1: dictConfig and fileConfig install log handlers; Hermes owns logging configuration"
+"logging.handlers.QueueListener".msg = "L1: it feeds log records to a handler Hermes does not own"
 "contextlib.suppress".msg = "C2, F3: suppress hides a failure without recording it; catch by name and record it"
 
 [tool.ruff.lint]
