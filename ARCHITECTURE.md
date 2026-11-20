@@ -4,7 +4,7 @@ This document describes how the custom build is put together: the memory provide
 
 Facts about Hermes itself are stated for **Hermes v0.23.1**, read from its documentation and source. Re-check them before upgrading Hermes.
 
-**CHA Final status.** This guide carries forward the design and historical measurements from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Bare issue numbers in this guide refer to that project. A description below does not establish that CHA Final ships it. The first milestone is one explicit fact saved and recalled in a new Hermes session against disposable Postgres, with a named failure visible to the user and operator when the store is unavailable. Extraction, reranking, guard hooks and deployment follow in separate changes.
+**Status.** This guide carries forward the design and historical measurements from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Bare issue numbers in this guide refer to that project. A description below does not establish that this repository ships it. The first milestone is one explicit fact saved and recalled in a new Hermes session against disposable Postgres, with a named failure visible to the user and operator when the store is unavailable. Extraction, reranking, guard hooks and deployment follow in separate changes.
 
 **Contents**
 
@@ -53,8 +53,8 @@ Hermes's developer guide says a memory provider can also load as an ordinary plu
 
 - **Prefetch blocks the turn.** Hermes waits for `prefetch()` for up to 8 seconds, then treats a timeout or an error as "no notes" and carries on. The provider therefore enforces its own deadline below 8 seconds. On failure it returns a "recall failed" note with its failure code instead of raising, because that is the only way the failure reaches the turn.
 - **There is no input for a second query.** `prefetch()` receives only the user's message. The action query (section 3.5) therefore runs from a `pre_llm_call` plugin. Hermes runs `pre_llm_call` before prefetch, bounds it with its own callback timeout (`plugins.hook_callback_timeout`, 30 seconds by default), and skips prefetch entirely for a turn that `pre_llm_call` blocks.[4]
-- **The project key comes from the active session's working directory.** CHA Final resolves the workspace on each explicit save and recall, including inside the context-bound recall worker. It uses the declared session workspace, the profile's terminal directory, or Hermes's `agent.runtime_cwd.resolve_agent_cwd()`, in that order.[3][15] A declared directory that cannot be inspected fails the operation. A non-repository or a repository with a local, file, or missing `origin` has no project. A network origin is normalized and hashed with SHA-256. Default endpoints on known public Git hosts share a key across common transport aliases. Generic hosts keep their transport in the key, and ambiguous home-relative SSH paths fail the operation. The database stores the digest.
-- **Explicit facts use exactly one scope.** Project queries read only facts with the same key. Sessions without a project use the original unscoped table. Migration `0002_project_facts.sql` adds a separate project table and allocates IDs from the original sequence. The original reader can still access its unscoped rows after the migration and cannot see rows saved to the project table. This is application-level filtering within a configured database role.
+- **The project key comes from the active session's working directory.** The provider resolves the workspace on each explicit save and recall, including inside the context-bound recall worker. It uses the declared session workspace, the profile's terminal directory, or Hermes's `agent.runtime_cwd.resolve_agent_cwd()`, in that order.[3][15] A declared directory that cannot be inspected fails the operation. A non-repository or a repository with a local, file, or missing `origin` has no project. A network origin is normalized and hashed with SHA-256. Default endpoints on known public Git hosts share a key across common transport aliases. Generic hosts keep their transport in the key, and ambiguous home-relative SSH paths fail the operation. The database stores the digest.
+- **Explicit facts use exactly one scope.** Project queries read only facts with the same key, and a session without a project reads only facts without one. This is application-level filtering within a configured database role.
 - **Every entry point goes through one boundary wrapper.** Hermes contains errors from hooks and providers, often silently (section 5.5). Each function Hermes calls is wrapped by a single shared wrapper in the failure module. On an unexpected exception it records the failure, with a sanitized diagnostic in the log (section 6.1), then does what that entry point requires:
 
   | Entry point | Recorded as | Then |
@@ -164,7 +164,7 @@ Retrieval is hybrid, with a rerank stage. A search by meaning and a search by wo
 | References | Cosine over chunks | BM25 over the same chunks, in application code | Rank fusion | No |
 | Sessions | Cosine over chunks | Postgres full-text | Rank fusion | No |
 
-The following facts-retrieval flow describes the previous implementation. CHA Final currently uses lexical search with the explicit-memory scope described in section 2.
+The following facts-retrieval flow describes the previous implementation. This repository has no retrieval yet.
 
 For the previous facts store:
 
@@ -255,21 +255,6 @@ Secrets are redacted before anything is stored or sent.
 ### 3.8 The eval set
 
 No ranking change ships without numbers from the eval set.
-
-**CHA Final lexical baseline.** The synthetic fixture, `evals/lexical.toml`, records explicit facts and one
-expected fact ID or an abstention per case. The runner, `evals/lexical.py`, seeds an empty migrated
-disposable database, then loads the plugin with Hermes v0.23.1 and calls its provider's `prefetch()` in a
-new session per case. The JSON report identifies the Hermes commit and fixture SHA-256, and gives
-the returned fact IDs, Recall@5, mean reciprocal rank (MRR), correct abstentions and named recall failures. Fixture text is
-unique across scopes, so each delivered note maps back to one fact ID. Recall failures get zero credit
-and make the run exit nonzero.
-
-The initial five cases gave Recall@5 **0.6667** (two of three answerable cases), MRR **0.5000**, correct
-abstention **2/2**, and **0** recall failures. The rank-2 lexical case checks order, the scoped case returns
-only its project's note, and the paraphrase case records a current lexical miss. Run the same fixture
-before and after a retrieval change using the procedure in [OPERATIONS.md](OPERATIONS.md#lexical-recall-baseline).
-These numbers establish explicit-fact retrieval on the synthetic fixture. Extraction, session reasoning,
-model answers, and anonymized real misses are outside this baseline.
 
 **LongMemEval and the historical design**
 
@@ -455,8 +440,6 @@ The reminder alone is not enough, because the model can ignore it as it ignores 
 
 ### 5.3 The guards
 
-**CHA Final recall gate.** The gate ships in log mode. In enforcing mode it holds past-work and open-work replies until Hermes reports successful `memory_search` and `session_search` calls in that turn. A completed search can return zero results. An interrupted turn discards its pending receipts when Hermes reports the turn end. The current memory search uses project-scoped lexical recall.
-
 | Guard | Acts when | What it forces |
 |---|---|---|
 | Fact gate | The user asks a checkable question | At least one lookup tool in that turn. A reply that gives a vendor procedure or a diagnosis also needs a documentation lookup. |
@@ -470,14 +453,13 @@ The verify gate's first list (#124): Hermes's `config.yaml` and `.env`, the plug
 
 The fact gate's first lists (#133): a checkable question is one of eight named patterns on the user's message (a version, a place, a state, a value, a count, support, a date, or a failure in a question); a lookup is `web_search`, `web_extract`, `read_file`, `search_files`, `terminal`, `session_search`, `skill_view`, `x_search` or `delegate_task` (a subagent's own lookups carry its session and turn), and a documentation lookup is `web_search` or `web_extract`; a reply needs a documentation lookup too when it gives a numbered procedure or a diagnosis. The memory search tool, `memory_search`, is one of the lookups (#158).
 
-CHA Final ships the fact gate in `log` mode. It records armed turns and whether those replies satisfied
+The fact gate ships in `log` mode. It records armed turns and whether those replies satisfied
 the lookup rules. The `on` mode adds a reminder and holds the reply until the final check. The `off`
 mode registers no hooks. Terminal lookups need a foreground exit code of zero, a delegated lookup needs
 a completed result, and a web extraction needs at least one returned page with content. Receipts match
 Hermes's turn ID in memory, so compression can rotate the session ID while the receipt still counts.
 Hermes sends `on_session_end` with a turn ID after finalization, including for empty or interrupted turns.
 The gate retires only that turn's receipt state when this hook runs.
-The current event table stores the rule and decision without turn IDs or conversation text.
 In Hermes v0.23.1, turning on either gate holds the stream and captures all registered output transforms.
 Hermes runs each captured transform and uses the first replacement. With fact `on` and verify `log`,
 the fact gate withholds an unchecked reply and the verify gate still records an unread managed claim.
@@ -486,7 +468,7 @@ records the missing lookup.
 
 The recall gate's searches (#173): `memory_search` and `session_search`, listed in its file beside the patterns. Each is counted as a tool call; the notes memory's recall delivers with a message (section 3.5) are not a tool call, and neither is a search a subagent ran after `delegate_task`, so neither counts. The gate reads the message as Hermes hands it to recall: a message given as parts is read as its text. In `log` mode the gate records each armed turn with its table and pattern name, and an armed turn's reply with the search it lacked.
 
-The write gate's first list of sensitive actions (#80): writes into the skills folder by any tool; writes to Hermes's own `config.yaml` and `.env` and to the plugin's folder; and terminal commands that install packages, run `systemctl`, or reach other hosts. The gate reads a `write_file` or `patch` call by the paths the tool will write, and a terminal command by pattern (section 5.6), so "any tool" means those three. Hermes's skill tool, `skill_manage`, is held by `skills.write_approval` instead (the last item of the list below). The gate records the configured rule names and known response labels. Tool arguments, command text, copy destinations, and file contents stay out of these events. CHA Final’s disposable Hermes fixture exercises the approval flow with synthetic `write_file` and `patch` actions. Terminal-rule fixtures remain pending.
+The write gate's first list of sensitive actions (#80): writes into the skills folder by any tool; writes to Hermes's own `config.yaml` and `.env` and to the plugin's folder; and terminal commands that install packages, run `systemctl`, or reach other hosts. The gate reads a `write_file` or `patch` call by the paths the tool will write, and a terminal command by pattern (section 5.6), so "any tool" means those three. Hermes's skill tool, `skill_manage`, is held by `skills.write_approval` instead (the last item of the list below). The gate records the configured rule names and known response labels. Tool arguments, command text, copy destinations, and file contents stay out of these events.
 
 The guards rest on Hermes mechanisms that the table does not name:
 

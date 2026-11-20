@@ -1,9 +1,9 @@
-# Working in CHA Final
+# Working in Custom-Hermes-Final
 
 For anyone, person or AI agent, who changes this repository. This file points at the repository's
 documents and restates their rules. If it and `CONTRIBUTING.md` differ, `CONTRIBUTING.md` wins.
 
-CHA Final starts with documentation and repository checks. Its first Hermes v0.23.1 milestone is one
+Custom-Hermes-Final starts with documentation and repository checks. Its first Hermes v0.23.1 milestone is one
 explicit fact saved and recalled in a new session, with a visible named failure when the disposable store
 is down. The repository is public. Keep secrets and deployment identifiers out of it.
 
