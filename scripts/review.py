@@ -1,6 +1,6 @@
 """Run the independent review before a pull request (CONTRIBUTING.md W6, issue #27).
 
-    python scripts/review.py <branch> <issue> [--out report.json]
+    python scripts/review.py <branch> <issue> [--out report.json] [--issue-file issue.txt]
 
 A separate, read-only `claude -p` reviews the branch against origin/main and must answer,
 with evidence, for every C, F and L rule in CONTRIBUTING.md and one item each for sections 8 and 9. The
@@ -120,6 +120,8 @@ def main(argv):
     parser.add_argument("branch")
     parser.add_argument("issue", type=int)
     parser.add_argument("--out", type=pathlib.Path, help="save the report as JSON here")
+    parser.add_argument("--issue-file", type=pathlib.Path,
+                        help="read the issue's text from this file; without it, `gh issue view` fetches it")
     args = parser.parse_args(argv)
     guide = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     items = checklist(guide)
@@ -135,7 +137,8 @@ def main(argv):
     span = f"origin/main...{args.branch}"
     text = brief(args.branch, args.issue, items, guide, diff=read("git", "diff", span),
                  log=read("git", "log", "--stat", span.replace("...", "..")),
-                 issue=read("gh", "issue", "view", str(args.issue)))
+                 issue=(args.issue_file.read_text(encoding="utf-8") if args.issue_file
+                        else read("gh", "issue", "view", str(args.issue))))
     done = subprocess.run(command(items), input=text, cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
     report = json.loads(done.stdout)["structured_output"]   # absent when claude returned no review: crash
     if args.out:
