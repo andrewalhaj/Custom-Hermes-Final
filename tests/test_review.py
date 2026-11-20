@@ -64,6 +64,76 @@ def test_the_reviewer_may_only_read():
     assert not {"--allowedTools", "--dangerously-skip-permissions"} & set(command)
 
 
+# The tool limit is what makes the reviewer read-only (W6). A Claude Code bump could keep `--tools` and change
+# what it does, so the script can ask a session started with the same limits which tools it has (#45).
+
+def test_the_tool_question_is_asked_under_the_reviews_own_limits():
+    asked, reviewed = review.tool_check_command(), review.command(ITEMS)
+    start = reviewed.index("--tools")
+    limits = reviewed[start:]   # --tools ... --strict-mcp-config --setting-sources project
+    assert limits == review.LIMITS and asked[-len(limits):] == limits
+    assert asked[:2] == ["claude", "-p"] and "--json-schema" in asked
+
+
+@pytest.mark.parametrize("tools,extra", [
+    (["Read", "Grep", "Glob"], []),
+    (["Glob", "Grep", "Read", "StructuredOutput"], []),   # how the answer itself is returned
+    (["Read", "Grep", "Glob", "Bash"], ["Bash"]),
+    (["Read", "Write", "Task", "Grep", "Glob"], ["Task", "Write"]),
+])
+def test_extra_tools_names_what_goes_beyond_reading(tools, extra):
+    assert review.extra_tools(tools) == extra
+
+
+@pytest.mark.parametrize("tools,missing", [
+    (["Read", "Grep", "Glob", "StructuredOutput"], []),
+    ([], ["Glob", "Grep", "Read"]),            # no answer is not "nothing extra" (C3)
+    (["Read", "StructuredOutput"], ["Glob", "Grep"]),
+])
+def test_missing_tools_names_the_read_tools_the_session_left_out(tools, missing):
+    assert review.missing_tools(tools) == missing
+
+
+@pytest.mark.parametrize("tools", [[], ["Read"]])
+def test_check_tools_refuses_an_answer_that_leaves_out_the_read_tools(monkeypatch, capsys, tools):
+    # A session that lists nothing, or part of what it has, has not shown that its limit holds.
+    fake = FakeRun(report=report(), tools=tools)
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    assert review.main(["feat/x", "7", "--check-tools"]) == 5
+    assert fake.ran.count(("claude", "-p")) == 1
+    assert "did not list its own read tools" in capsys.readouterr().err
+
+
+def test_check_tools_comes_after_the_free_checks(monkeypatch):
+    # A wrong branch or a dirty tree stops the script before it pays for a model call.
+    fake = FakeRun(branch="main", report=report())
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    with pytest.raises(SystemExit):
+        review.main(["feat/x", "7", "--check-tools"])
+    assert ("claude", "-p") not in fake.ran
+
+
+def test_check_tools_reviews_when_the_session_can_only_read(monkeypatch):
+    fake = FakeRun(report=report())
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    assert review.main(["feat/x", "7", "--check-tools"]) == 0
+    assert fake.ran.count(("claude", "-p")) == 2   # the tool question, then the review
+
+
+def test_check_tools_refuses_to_review_a_session_that_can_do_more(monkeypatch, capsys):
+    fake = FakeRun(report=report(), tools=["Read", "Grep", "Glob", "Bash"])
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    assert review.main(["feat/x", "7", "--check-tools"]) == 5
+    assert fake.ran.count(("claude", "-p")) == 1 and ("git", "diff") not in fake.ran   # asked, then stopped
+    assert "the reviewer was offered tools beyond Read, Grep and Glob: Bash" in capsys.readouterr().err
+
+
+def test_without_check_tools_the_session_is_not_asked(monkeypatch):
+    fake = FakeRun(report=report())
+    assert run_main(monkeypatch, fake) == 0
+    assert fake.ran.count(("claude", "-p")) == 1
+
+
 def test_the_schema_requires_an_answer_with_evidence_for_every_item():
     schema = review.schema(ITEMS)
     rules = schema["properties"]["rules"]
@@ -133,7 +203,8 @@ ISSUE = {"title": "the title", "body": "the issue body\n", "comments": [
 class FakeRun:
     """Stands in for subprocess.run inside the script: answers by command, and records what was run."""
 
-    def __init__(self, branch="feat/x", status="", report=None):
+    def __init__(self, branch="feat/x", status="", report=None, tools=("Read", "Grep", "Glob", "StructuredOutput")):
+        self.tools = list(tools)   # what the session says it can call, when the script asks
         self.answers = {("git", "branch"): branch + "\n", ("git", "status"): status, ("git", "fetch"): "",
                         ("git", "diff"): "+ a line\n", ("git", "log"): "abc a commit\n", ("gh", "issue"): review.json.dumps(ISSUE),
                         ("claude", "-p"): review.json.dumps({"structured_output": report})}
@@ -145,6 +216,9 @@ class FakeRun:
         self.ran.append(tuple(command[:2]))
         self.given.append(kwargs.get("input"))
         self.commands.append(list(command))
+        if command[0] == "claude" and '"tools"' in command[command.index("--json-schema") + 1]:   # the tool question
+            answer = review.json.dumps({"structured_output": {"tools": self.tools}})
+            return review.subprocess.CompletedProcess(command, 0, stdout=answer)
         return review.subprocess.CompletedProcess(command, 0, stdout=self.answers[tuple(command[:2])])
 
 
