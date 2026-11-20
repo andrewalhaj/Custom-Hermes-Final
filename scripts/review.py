@@ -33,6 +33,12 @@ ULTRA = ("Ponytail level for this session: ultra. Also question the request: bef
 TOOLS = ["Read", "Grep", "Glob"]   # read-only: no shell at all, since even `git diff` takes --output=<path>
 
 
+def command(items):
+    """The reviewer's command line. `--tools` sets which tools exist; nothing else is offered, MCP included."""
+    return ["claude", "-p", "--output-format", "json", "--json-schema", json.dumps(schema(items)),
+            "--append-system-prompt", ULTRA, "--tools", *TOOLS, "--strict-mcp-config"]
+
+
 def checklist(guide):
     """Every C, F and L rule in sections 5 to 7 of the guide, by ID, then one item each for sections 8 and 9."""
     sections = guide[guide.index("\n## 5. "):guide.index("\n## 8. ")]
@@ -114,14 +120,14 @@ def main(argv):
 
     if read("git", "branch", "--show-current").strip() != args.branch:
         parser.error(f"check out {args.branch} first: the reviewer reads files from this checkout")
+    if read("git", "status", "--porcelain").strip():
+        parser.error("commit or remove the uncommitted changes first: the reviewer would read them as the branch")
+    read("git", "fetch", "--quiet", "origin", "main")   # W11: diff against main as it is now
     span = f"origin/main...{args.branch}"
     text = brief(args.branch, args.issue, items, guide, diff=read("git", "diff", span),
                  log=read("git", "log", "--stat", span.replace("...", "..")),
                  issue=read("gh", "issue", "view", str(args.issue)))
-    command = ["claude", "-p", "--output-format", "json", "--json-schema", json.dumps(schema(items)),
-               "--append-system-prompt", ULTRA, "--strict-mcp-config", "--allowedTools", *TOOLS,
-               "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit"]
-    done = subprocess.run(command, input=text, cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
+    done = subprocess.run(command(items), input=text, cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
     report = json.loads(done.stdout)["structured_output"]   # absent when claude returned no review: crash
     if args.out:
         args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
