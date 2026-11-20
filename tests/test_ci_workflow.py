@@ -173,8 +173,10 @@ def test_probe(tmp_path, label, files, expect):
 
 
 def test_probe_fails_when_ruff_is_missing(tmp_path):
-    script = step_script(PROBE_STEP).replace("| ruff check", "| /nonexistent/ruff check")
-    check(tmp_path, script, {"pyproject.toml": CONFIG}, "ruff exited 127")
+    script = step_script(PROBE_STEP)
+    assert script.count("out=$(ruff check") == 1
+    check(tmp_path, script.replace("out=$(ruff check", "out=$(/nonexistent/ruff check"), {"pyproject.toml": CONFIG},
+          "ruff exited 127")
 
 
 COVERAGE_STEP = "ruff lints every tracked Python file"

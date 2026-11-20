@@ -69,17 +69,42 @@ jobs:
       - name: the error-handling rules are switched on
         shell: bash
         run: |
-          # Lint a probe that breaks all three rules, with the repository's own ruff configuration.
+          # Lint a probe that breaks every selected rule, with the repository's own ruff configuration.
           # Any configuration that turns a rule off (ignore, select, ruff.toml) makes its code disappear.
           set +e
-          out=$(printf 'try:\n    pass\nexcept Exception:\n    pass\ntry:\n    pass\nexcept:\n    pass\n' \
-            | ruff check --no-cache --output-format concise --stdin-filename ci_probe.py -)
+          out=$(ruff check --no-cache --output-format concise --stdin-filename ci_probe.py - <<'PY'
+          import contextlib
+          import logging
+          try:
+              pass
+          except Exception:
+              pass
+          try:
+              pass
+          except:
+              pass
+          for _ in ():
+              try:
+                  pass
+              except Exception:
+                  continue
+          logging.basicConfig()
+          logging.info("x")
+          logging.getLogger(__name__).warning(f"{_}")
+          with contextlib.suppress(ValueError):
+              pass
+          PY
+          )
           rc=$?
           set -e
           echo "$out"
           # 1 = findings reported (expected); 0 = the rules are off; anything else = ruff failed or is missing
           [ "$rc" -eq 1 ] || { echo "probe: ruff exited $rc, expected 1 (findings reported)"; exit 1; }
-          for code in BLE001 S110 E722; do grep -q "$code" <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
+          # ": CODE " is how ruff's concise output frames a finding, so a code quoted in a message does not count.
+          for code in BLE001 S110 E722 S112 G004 LOG015; do grep -qF ": $code " <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
+          for api in logging.basicConfig contextlib.suppress; do
+            grep -qF "\`$api\` is banned" <<< "$out" || { echo "ruff no longer bans $api"; exit 1; }
+          done
       - name: ruff lints every tracked Python file
         shell: bash
         run: |
