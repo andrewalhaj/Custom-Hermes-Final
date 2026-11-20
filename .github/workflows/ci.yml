@@ -113,25 +113,42 @@ jobs:
         shell: bash
         run: |
           # BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the
-          # failure module's two wrappers (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which ruff does not see.
+          # failure module's two wrappers (CONTRIBUTING.md 5.4), under any name the file gives those classes. L1
+          # bans adding log handlers, which ruff does not see.
           python - <<'PY'
           import ast, subprocess, sys
           ALLOWED = set()   # "path.py:qualified.name" of the two wrappers, once the failure module has them (C2)
-          def broad(t):   # nothing (bare), Exception or BaseException, by any path, alone or in a tuple
+          def broad(t, names):   # nothing (bare), or one of `names`, by any path, alone or in a tuple
               if isinstance(t, ast.Tuple):
-                  return any(broad(e) for e in t.elts)
-              return t is None or (t.attr if isinstance(t, ast.Attribute) else getattr(t, "id", None)) in ("Exception", "BaseException")
+                  return any(broad(e, names) for e in t.elts)
+              return t is None or (t.attr if isinstance(t, ast.Attribute) else getattr(t, "id", None)) in names
+          def broad_names(tree):
+              # Exception, BaseException and every name the file gives them: an assignment, a walrus or an
+              # `import ... as`, anywhere in the file whatever its scope, followed until no new name turns up.
+              names = {"Exception", "BaseException"}
+              while True:
+                  found = set()
+                  for node in ast.walk(tree):
+                      if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and node.value is not None and broad(node.value, names):
+                          targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                          found |= {target.id for target in targets if isinstance(target, ast.Name)}
+                      if isinstance(node, ast.ImportFrom):
+                          found |= {alias.asname for alias in node.names if alias.name in names and alias.asname}
+                  if found <= names:
+                      return names
+                  names |= found
           bad = []
-          def walk(node, path, func):
+          def walk(node, path, func, names):
               for child in ast.iter_child_nodes(node):
-                  if isinstance(child, ast.ExceptHandler) and broad(child.type) and f"{path}:{func}" not in ALLOWED:
+                  if isinstance(child, ast.ExceptHandler) and broad(child.type, names) and f"{path}:{func}" not in ALLOWED:
                       bad.append(f"broad handler outside the wrappers: {path}:{child.lineno} in {func or 'module'}")
                   if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "addHandler":
                       bad.append(f"log handler added: {path}:{child.lineno}")
                   named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                  walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func)
+                  walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func, names)
           for path in subprocess.run(["git", "ls-files", "-z", "*.py"], check=True, capture_output=True, text=True).stdout.split("\0")[:-1]:
-              walk(ast.parse(open(path, encoding="utf-8").read(), path), path, None)
+              tree = ast.parse(open(path, encoding="utf-8").read(), path)
+              walk(tree, path, None, broad_names(tree))
           sys.exit("\n".join(bad) if bad else 0)
           PY
       - name: ruff lints every tracked Python file
