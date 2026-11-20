@@ -53,8 +53,13 @@ def test_a_rule_the_parser_cannot_read_is_an_error_not_a_silent_gap(line):
 
 
 def test_the_reviewer_may_only_read():
-    # Read-only (W6). No Bash rule at all: even `git diff` takes --output=<path>, which writes a file.
-    assert sorted(review.TOOLS) == ["Glob", "Grep", "Read"]
+    # Read-only (W6). `--tools` sets which tools exist at all; `--allowedTools` would only pre-approve some.
+    # No shell: even `git diff` takes --output=<path>, which writes a file. No MCP servers either.
+    command = review.command(ITEMS)
+    start = command.index("--tools")
+    assert command[start + 1:start + 5] == ["Read", "Grep", "Glob", "--strict-mcp-config"]
+    assert command[:2] == ["claude", "-p"] and "--json-schema" in command
+    assert not {"--allowedTools", "--dangerously-skip-permissions"} & set(command)
 
 
 def test_the_schema_requires_an_answer_with_evidence_for_every_item():
