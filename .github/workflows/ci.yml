@@ -117,7 +117,8 @@ jobs:
         run: |
           # BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the
           # failure module's two wrappers (CONTRIBUTING.md 5.4), under any name the file gives those classes. L1
-          # bans adding log handlers: addHandler, or a change to any `.handlers` list, which ruff does not see.
+          # bans adding log handlers: addHandler, a change to any `.handlers` list, an assignment to `lastResort`,
+          # or `logging.config` imported by name, none of which ruff sees.
           python - <<'PY'
           import ast, subprocess, sys
           ALLOWED = set()   # "path.py:qualified.name" of the two wrappers, once the failure module has them (C2)
