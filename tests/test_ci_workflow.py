@@ -76,7 +76,7 @@ def test_the_dev_tools_are_installed_from_the_pinned_group_before_they_run():
     assert commands.index(install) < commands.index("ruff check .") < commands.index("python -m pytest -q")
 
 
-NOQA_STEP = "no noqa that can silence the error-handling rules"
+NOQA_STEP = "no noqa that can silence a protected rule"
 NOQA_CASES = [
     ("clean", {"a.py": CODE}, None),
     ("another rule only", {"a.py": f"import os  # {NOQA}: F401\n"}, None),
@@ -87,6 +87,11 @@ NOQA_CASES = [
     ("bare, no space, trailing text", {"a.py": f"x = 1  #{NOQA}  because\n"}, "git grep exited 0"),
     ("file-level ruff", {"a.py": f"# ruff: {NOQA}\nx = 1\n"}, "git grep exited 0"),
     ("file-level flake8", {"a.py": f"# flake8: {NOQA}\nx = 1\n"}, "git grep exited 0"),
+    ("names S112", {"a.py": f"x = 1  # {NOQA}: S112\n"}, "git grep exited 0"),
+    ("names a G code", {"a.py": f"x = 1  # {NOQA}: G004\n"}, "git grep exited 0"),
+    ("names a LOG code, no space", {"a.py": f"x = 1  # {NOQA}:LOG015\n"}, "git grep exited 0"),
+    ("names TID251 after another rule", {"a.py": f"x = 1  # {NOQA}: F401,TID251\n"}, "git grep exited 0"),
+    ("another rule that only ends like a code", {"a.py": f"x = 1  # {NOQA}: PLC0415, RUF100\n"}, None),
 ]
 
 
@@ -101,11 +106,16 @@ def test_noqa_ban_fails_when_git_fails(tmp_path):
 
 
 # ruff honours more suppression forms than the pattern above knows, so a second step asks ruff itself:
-# with every suppression comment ignored, none of the three rules may fire anywhere.
-UNSUPPRESSED_STEP = "no broad catch once every suppression comment is ignored"
+# with every suppression comment ignored, none of the protected rules may fire anywhere.
+UNSUPPRESSED_STEP = "no protected rule fires once every suppression comment is ignored"
 BROAD = {"BLE001": "try:\n    x = 1\nexcept Exception:{line}\n    x = 2\n",
          "S110": "try:\n    x = 1\nexcept Exception:{line}\n    pass{line}\n",
-         "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n"}
+         "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n",
+         # the rules #16 added (C2, L1); a comment must not silence them either (#19)
+         "S112": "for i in ():\n    try:\n        x = 1\n    except Exception:{line}\n        continue{line}\n",
+         "G004": "import logging\n\nlogging.getLogger(__name__).warning(f\"{{__name__}}\"){line}\n",
+         "LOG015": "import logging\n\nlogging.info(\"x\"){line}\n",
+         "TID251": "import contextlib\n\nwith contextlib.suppress(ValueError):{line}\n    x = 1\n"}
 LINE_FORMS = [f"# {NOQA} : {{rule}}", "# ruff: ignore[{rule}]"]
 FILE_FORMS = ["# ruff: disable[{rule}]", "# ruff: file-ignore[{rule}]", f"# ruff : {NOQA}", f"# flake8 : {NOQA}"]
 UNSUPPRESSED_CASES = [("clean", {"pyproject.toml": CONFIG, "a.py": CODE}, None),
