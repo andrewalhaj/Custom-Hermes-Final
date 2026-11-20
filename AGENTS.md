@@ -42,7 +42,8 @@ before relying on them with another version.
 
 ## Code rules (CONTRIBUTING.md 5.1, 6, 7)
 - C1 Catch the error you expect, by name; the `try` covers only the line that raises it.
-- C2 No `except Exception`, `except BaseException` or bare `except:`; never suppress BLE001, S110 or E722.
+- C2 No `except Exception`, `except BaseException` or bare `except:`; never suppress BLE001, S110, E722, S112,
+  TID251 or any G or LOG code.
   Only the two wrappers in the failure module catch everything.
 - C3 A failure never looks like an empty result. A missing setting is a startup error.
 - C4 Let it crash; add handling only when the issue asks, and still record the failure.
