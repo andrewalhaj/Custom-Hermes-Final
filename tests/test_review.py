@@ -80,10 +80,37 @@ def test_the_tool_question_is_asked_under_the_reviews_own_limits():
     (["Glob", "Grep", "Read", "StructuredOutput"], []),   # how the answer itself is returned
     (["Read", "Grep", "Glob", "Bash"], ["Bash"]),
     (["Read", "Write", "Task", "Grep", "Glob"], ["Task", "Write"]),
-    ([], []),
 ])
 def test_extra_tools_names_what_goes_beyond_reading(tools, extra):
     assert review.extra_tools(tools) == extra
+
+
+@pytest.mark.parametrize("tools,missing", [
+    (["Read", "Grep", "Glob", "StructuredOutput"], []),
+    ([], ["Glob", "Grep", "Read"]),            # no answer is not "nothing extra" (C3)
+    (["Read", "StructuredOutput"], ["Glob", "Grep"]),
+])
+def test_missing_tools_names_the_read_tools_the_session_left_out(tools, missing):
+    assert review.missing_tools(tools) == missing
+
+
+@pytest.mark.parametrize("tools", [[], ["Read"]])
+def test_check_tools_refuses_an_answer_that_leaves_out_the_read_tools(monkeypatch, capsys, tools):
+    # A session that lists nothing, or part of what it has, has not shown that its limit holds.
+    fake = FakeRun(report=report(), tools=tools)
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    assert review.main(["feat/x", "7", "--check-tools"]) == 5
+    assert fake.ran.count(("claude", "-p")) == 1
+    assert "did not list its own read tools" in capsys.readouterr().err
+
+
+def test_check_tools_comes_after_the_free_checks(monkeypatch):
+    # A wrong branch or a dirty tree stops the script before it pays for a model call.
+    fake = FakeRun(branch="main", report=report())
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    with pytest.raises(SystemExit):
+        review.main(["feat/x", "7", "--check-tools"])
+    assert ("claude", "-p") not in fake.ran
 
 
 def test_check_tools_reviews_when_the_session_can_only_read(monkeypatch):
