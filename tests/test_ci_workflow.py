@@ -166,6 +166,8 @@ PROBE_CASES = [
      "ruff no longer bans contextlib.suppress"),
     ("basicConfig no longer banned", {"pyproject.toml": CONFIG.replace('"logging.basicConfig"', '"logging.shutdown"')},
      "ruff no longer bans logging.basicConfig"),
+    ("logging.config no longer banned", {"pyproject.toml": CONFIG.replace('"logging.config"', '"logging.handlers"')},
+     "ruff no longer bans logging.config"),
 ]
 
 
@@ -277,6 +279,15 @@ HANDLER_CASES += [
     ("addHandler", {"a.py": "import logging\nlogging.getLogger(__name__).addHandler(logging.NullHandler())\n"},
      "log handler added: a.py:2"),
     ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
+    # A handler put straight into a logger's list, without addHandler (#17).
+    ("handlers.append", {"a.py": "import logging\nlogging.root.handlers.append(logging.NullHandler())\n"},
+     "log handler added: a.py:2"),
+    ("handlers.extend", {"a.py": "def f(log, h):\n    log.handlers.extend([h])\n"}, "log handler added: a.py:2"),
+    ("handlers.insert", {"a.py": "def f(log, h):\n    log.handlers.insert(0, h)\n"}, "log handler added: a.py:2"),
+    ("handlers assigned", {"a.py": "def f(log, h):\n    log.handlers = [h]\n"}, "log handler added: a.py:2"),
+    ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "log handler added: a.py:2"),
+    ("handlers only read", {"a.py": "def f(log):\n    return len(log.handlers), list(log.handlers)\n"}, None),
+    ("another list appended to", {"a.py": "def f(items, x):\n    items.append(x)\n    items.rows.append(x)\n"}, None),
     ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
      "broad handler outside the wrappers: my mod.py:4 in f"),
 ]
