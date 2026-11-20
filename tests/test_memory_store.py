@@ -1,4 +1,4 @@
-"""Prove migrations/0001_memory_store.sql (issue #7, ARCHITECTURE.md sections 4.2 and 4.3).
+"""Prove the migrations in migrations/ (issues #7 and #25, ARCHITECTURE.md sections 4.2 and 4.3).
 
 Each refusal is the failing case of CONTRIBUTING.md section 8's "Separate database roles" row (C6): with a
 machine's role, deleting a row or altering a table is refused.
