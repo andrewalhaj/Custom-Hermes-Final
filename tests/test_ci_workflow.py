@@ -162,6 +162,7 @@ PROBE_CASES = [
     ("ignore G001", {"pyproject.toml": CONFIG + 'ignore = ["G001"]\n'}, "ruff no longer reports G001"),
     ("ignore G003", {"pyproject.toml": CONFIG + 'ignore = ["G003"]\n'}, "ruff no longer reports G003"),
     ("ignore LOG002", {"pyproject.toml": CONFIG + 'ignore = ["LOG002"]\n'}, "ruff no longer reports LOG002"),
+    ("ignore LOG015", {"pyproject.toml": CONFIG + 'ignore = ["LOG015"]\n'}, "ruff no longer reports LOG015"),
     ("suppress no longer banned",
      {"pyproject.toml": CONFIG.replace('"contextlib.suppress".msg', '"contextlib.nullcontext".msg')},
      "ruff no longer bans contextlib.suppress"),
