@@ -53,10 +53,8 @@ def test_a_rule_the_parser_cannot_read_is_an_error_not_a_silent_gap(line):
 
 
 def test_the_reviewer_may_only_read():
-    # Read-only (W6): file reads, and git and gh commands that only print. Nothing that runs a program.
-    allowed = ("Read", "Grep", "Glob", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-               "Bash(git ls-files:*)", "Bash(git status:*)", "Bash(gh issue view:*)")
-    assert sorted(review.TOOLS) == sorted(allowed)
+    # Read-only (W6). No Bash rule at all: even `git diff` takes --output=<path>, which writes a file.
+    assert sorted(review.TOOLS) == ["Glob", "Grep", "Read"]
 
 
 def test_the_schema_requires_an_answer_with_evidence_for_every_item():
@@ -85,7 +83,7 @@ def test_an_incomplete_report_is_not_a_review(label, bad, expect):
     broken = report()
     bad(broken)
     assert expect in review.problems(broken, ITEMS)
-    assert review.exit_code(broken, ITEMS) == 2
+    assert review.exit_code(broken, ITEMS) == 4   # 2 is argparse's code for bad arguments
 
 
 def test_a_failed_rule_or_a_fix_first_verdict_exits_with_its_own_code():
@@ -99,7 +97,10 @@ def test_not_applicable_with_a_reason_passes():
     assert review.exit_code(report(rules={"C10": {"verdict": "not_applicable", "evidence": "no migration"}}), ITEMS) == 0
 
 
-def test_the_brief_names_the_branch_the_issue_and_every_item():
-    brief = review.brief("feat/x", 7, ITEMS)
-    assert "origin/main...feat/x" in brief and "gh issue view 7" in brief
+def test_the_brief_carries_the_change_the_issue_and_every_item_and_ends_with_the_rule():
+    brief = review.brief("feat/x", 7, ITEMS, GUIDE, diff="+ added line", log="abc123 a commit", issue="Done looks like")
+    assert "feat/x" in brief and "issue #7" in brief
+    assert all(text in brief for text in ("+ added line", "abc123 a commit", "Done looks like"))
     assert all(f"- {key}: " in brief for key in ITEMS)
+    rule = review.error_handling_rule(GUIDE)
+    assert rule.startswith("Error handling rule: catch the specific exception") and brief.endswith(rule + "\n")
