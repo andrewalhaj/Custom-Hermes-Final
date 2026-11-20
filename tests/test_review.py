@@ -109,3 +109,48 @@ def test_the_brief_carries_the_change_the_issue_and_every_item_and_ends_with_the
     assert all(f"- {key}: " in brief for key in ITEMS)
     rule = review.error_handling_rule(GUIDE)
     assert rule.startswith("Error handling rule: catch the specific exception") and brief.endswith(rule + "\n")
+
+
+class FakeRun:
+    """Stands in for subprocess.run inside the script: answers by command, and records what was run."""
+
+    def __init__(self, branch="feat/x", status="", report=None):
+        self.answers = {("git", "branch"): branch + "\n", ("git", "status"): status, ("git", "fetch"): "",
+                        ("git", "diff"): "+ a line\n", ("git", "log"): "abc a commit\n", ("gh", "issue"): "the issue\n",
+                        ("claude", "-p"): review.json.dumps({"structured_output": report})}
+        self.ran = []
+
+    def __call__(self, command, **kwargs):
+        self.ran.append(tuple(command[:2]))
+        return review.subprocess.CompletedProcess(command, 0, stdout=self.answers[tuple(command[:2])])
+
+
+def run_main(monkeypatch, fake):
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    return review.main(["feat/x", "7"])
+
+
+def test_the_script_fetches_main_then_reviews_and_returns_the_reports_code(monkeypatch, capsys):
+    fake = FakeRun(report=report())
+    assert run_main(monkeypatch, fake) == 0
+    assert fake.ran.index(("git", "fetch")) < fake.ran.index(("git", "diff")) < fake.ran.index(("claude", "-p"))
+    assert "Verdict: ship" in capsys.readouterr().out
+    assert run_main(monkeypatch, FakeRun(report=report(verdict="fix_first"))) == 3
+
+
+@pytest.mark.parametrize("fake,message", [
+    (FakeRun(branch="main"), "check out feat/x first"),
+    (FakeRun(status=" M scripts/review.py\n"), "uncommitted changes"),
+])
+def test_the_script_refuses_the_wrong_branch_or_a_dirty_tree_before_any_review(monkeypatch, capsys, fake, message):
+    with pytest.raises(SystemExit) as stopped:
+        run_main(monkeypatch, fake)
+    assert stopped.value.code == 2 and message in capsys.readouterr().err
+    assert ("claude", "-p") not in fake.ran and ("git", "diff") not in fake.ran
+
+
+def test_a_run_with_no_structured_output_crashes(monkeypatch):
+    fake = FakeRun()
+    fake.answers[("claude", "-p")] = "{}"
+    with pytest.raises(KeyError, match="structured_output"):
+        run_main(monkeypatch, fake)
