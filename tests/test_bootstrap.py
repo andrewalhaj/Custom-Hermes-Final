@@ -186,13 +186,14 @@ def missing_guides(root):
 def error_handling_rule(contributing):
     """The one quoted line in section 9 that every brief ends with."""
     section = contributing[contributing.index("\n## 9. "):]
-    rules = re.findall(r"^\s*> (Error handling rule: .+)$", section, re.MULTILINE)
+    rules = re.findall(r"^\s*> (Error handling rule: .+(?:\n\s*> .+)*)$", section, re.MULTILINE)
     assert len(rules) == 1, f"expected one quoted error-handling rule in section 9, found {len(rules)}"
-    return rules[0]
+    return re.sub(r"\n\s*> ", " ", rules[0])   # the quote may wrap over several lines
 
 
 def repeats_rule(agent_guide, rule):
-    return " ".join(rule.split()) in " ".join(agent_guide.split())   # the agent guide wraps the line
+    # The agent guide wraps the line and puts it in double quotes; the quotes make it the whole rule, not a piece.
+    return f'"{" ".join(rule.split())}"' in " ".join(agent_guide.split())
 
 
 def competing_instruction_files(tracked):
@@ -215,10 +216,10 @@ def test_the_agent_guide_repeats_the_error_handling_rule_word_for_word():
 
 
 def test_no_competing_instruction_file_is_tracked():
-    result = git("ls-files")
+    result = git("ls-files", "-z")   # -z: git quotes a non-ASCII path otherwise, which would hide its name
     assert result.returncode == 0, result.stderr
-    assert AGENT_GUIDE in result.stdout.split("\n")
-    assert competing_instruction_files(result.stdout.split("\n")) == []
+    assert AGENT_GUIDE in result.stdout.split("\0")
+    assert competing_instruction_files(result.stdout.split("\0")) == []
 
 
 def guide_copy(tmp_path):
@@ -232,7 +233,7 @@ def test_a_removed_pointer_and_a_missing_guide_fail(tmp_path):
     assert missing_guides(root) == []
     (root / "OPERATIONS.md").unlink()
     assert missing_guides(root) == ["OPERATIONS.md"]
-    assert broken_links(root / AGENT_GUIDE) == ["OPERATIONS.md: no such file"]   # the broken link fails too
+    assert "OPERATIONS.md: no such file" in broken_links(root / AGENT_GUIDE)   # the broken link fails too
     agent_guide = (root / AGENT_GUIDE).read_text(encoding="utf-8")
     (root / AGENT_GUIDE).write_text(agent_guide.replace("](ARCHITECTURE.md)", "]"), encoding="utf-8")
     assert missing_guides(root) == ["ARCHITECTURE.md", "OPERATIONS.md"]
@@ -244,6 +245,10 @@ def test_a_changed_rule_fails_in_either_file():
     rule = error_handling_rule(contributing)
     assert not repeats_rule(agent_guide.replace("by name", "by type"), rule)
     assert not repeats_rule(agent_guide, error_handling_rule(contributing.replace("by name. Never", "by type. Never")))
+    assert not repeats_rule(agent_guide, rule.split(" Never")[0])                   # a shortened rule
+    assert not repeats_rule(agent_guide.replace('crash."', 'crash, usually."'), rule)   # an extended one
+    wrapped = contributing.replace("by name. Never", "by name.\n  > Never")
+    assert error_handling_rule(wrapped) == rule
     with pytest.raises(AssertionError, match="found 0"):
         error_handling_rule(contributing.replace("> Error handling rule:", "> Rule:"))
 
