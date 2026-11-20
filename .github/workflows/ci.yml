@@ -260,13 +260,16 @@ jobs:
           echo "::stop-commands::$token"
           cat "$RUNNER_TEMP/review.txt"
           echo "::$token::"
-          # GitHub refuses a step summary over about 1 MiB, so a report longer than this is cut there; the log has it all.
-          head -c 900000 "$RUNNER_TEMP/review.txt" > "$RUNNER_TEMP/summary.txt"
-          if ! cmp -s "$RUNNER_TEMP/review.txt" "$RUNNER_TEMP/summary.txt"; then
-            printf '\n[report cut here: it is too long for a job summary; the job log has all of it]\n' >> "$RUNNER_TEMP/summary.txt"
-          fi
-          # A tilde fence longer than any run of tildes in the report, so nothing in the report can close it.
-          fence=$(python -c 'import re, sys; print("~" * (max(map(len, re.findall("~+", open(sys.argv[1], errors="replace").read())), default=7) + 1))' "$RUNNER_TEMP/summary.txt")
-          { echo "${fence}text"; cat "$RUNNER_TEMP/summary.txt"; echo "$fence"; } >> "$GITHUB_STEP_SUMMARY"
+          # The job summary gets the report as one text block. GitHub refuses a summary over about 1 MiB, so a
+          # longer report is cut there; the log above has all of it.
+          python - "$RUNNER_TEMP/review.txt" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import re, sys
+          data = open(sys.argv[1], "rb").read()
+          text = data[:900000].decode("utf-8", errors="ignore")   # ignore: the cut may fall inside a character
+          if len(data) > 900000:
+              text += "\n[report cut here: it is too long for a job summary; the job log has all of it]"
+          fence = "~" * (max(map(len, re.findall("~+", text)), default=7) + 1)   # nothing in the report can close it
+          sys.stdout.buffer.write(f"{fence}text\n{text.rstrip(chr(10))}\n{fence}\n".encode("utf-8"))
+          PY
           # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
           exit "$code"
