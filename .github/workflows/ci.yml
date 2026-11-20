@@ -192,6 +192,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}   # the commit this run is for
           fetch-depth: 0   # the script diffs against origin/main
+          persist-credentials: false   # keep the job's token out of .git/config, which the reviewer can read
       - name: name the checkout as the branch
         shell: bash
         env:
@@ -227,8 +228,13 @@ jobs:
           python scripts/review.py "$BRANCH" "$ISSUE" > "$RUNNER_TEMP/review.txt" 2>&1
           code=$?
           set -e
+          # The report is model output. The runner must not act on a line in it that looks like a workflow command.
+          token=$(python -c 'import secrets; print(secrets.token_hex(16))')
+          echo "::stop-commands::$token"
           cat "$RUNNER_TEMP/review.txt"
-          # A tilde fence: a report that quotes a ``` fence cannot close it.
-          { echo '~~~~~~~~text'; cat "$RUNNER_TEMP/review.txt"; echo '~~~~~~~~'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::$token::"
+          # A tilde fence longer than any run of tildes in the report, so nothing in the report can close it.
+          fence=$(python -c 'import re, sys; print("~" * (max(map(len, re.findall("~+", open(sys.argv[1]).read())), default=7) + 1))' "$RUNNER_TEMP/review.txt")
+          { echo "${fence}text"; cat "$RUNNER_TEMP/review.txt"; echo "$fence"; } >> "$GITHUB_STEP_SUMMARY"
           # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
           exit "$code"
