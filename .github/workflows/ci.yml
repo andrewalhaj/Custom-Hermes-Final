@@ -249,7 +249,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}   # read-only; kept out of the step that runs the reviewer
           ISSUE: ${{ steps.issue.outputs.issue }}
-        run: gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"
+        run: |
+          # The body, then the comments: `gh issue view --comments` prints the comments without the body.
+          {
+            gh issue view "$ISSUE"
+            echo
+            echo "Comments on the issue:"
+            gh issue view "$ISSUE" --comments
+          } > "$RUNNER_TEMP/issue.txt"
       - name: review the branch
         shell: bash
         env:
