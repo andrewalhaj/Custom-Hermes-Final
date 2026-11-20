@@ -275,7 +275,7 @@ jobs:
         run: |
           # The report, with any reason it is incomplete (stderr), goes to the log and to the job summary.
           set +e
-          python scripts/review.py "$BRANCH" "$ISSUE" --issue-file "$RUNNER_TEMP/issue.txt" > "$RUNNER_TEMP/review.txt" 2>&1
+          python scripts/review.py "$BRANCH" "$ISSUE" --issue-file "$RUNNER_TEMP/issue.txt" --check-tools > "$RUNNER_TEMP/review.txt" 2>&1
           code=$?
           set -e
           # The report is model output. The runner must not act on a line in it that looks like a workflow command.
@@ -295,5 +295,6 @@ jobs:
           fence = "~" * (max(map(len, re.findall("~+", text)), default=7) + 1)   # nothing in the report can close it
           sys.stdout.buffer.write(f"{fence}text\n{text.rstrip(chr(10))}\n{fence}\n".encode("utf-8"))
           PY
-          # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
+          # 0 = ship; 3 = fix first; 4 = an incomplete report; 5 = the reviewer was offered a tool it must not
+          # have; anything else = the review did not run
           exit "$code"
