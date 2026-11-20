@@ -794,4 +794,15 @@ def test_the_pins_file_is_the_export_for_the_commit_the_workflow_installs():
     pins = (ROOT / "hermes-requirements.txt").read_text(encoding="utf-8")
     assert HERMES_COMMIT in pins.splitlines()[1]
     lines = [line for line in pins.splitlines() if line and not line.startswith(("#", " "))]
-    assert len(lines) > 50 and [line for line in lines if "==" not in line] == []   # every package pinned exactly
+    assert len(lines) > 50 and [line for line in lines if not pinned(line)] == []
+
+
+def pinned(line):
+    """True for `name==version` or `name @ git+<url>@<full commit>`, read before any `;` marker."""
+    requirement = line.split(";")[0].strip()
+    return bool(re.fullmatch(r"[\w.\[\]-]+==[\w.+!]+|[\w.-]+ @ git\+\S+@[0-9a-f]{40}", requirement))
+
+
+@pytest.mark.parametrize("line", ["foo ; sys_platform == 'linux'", "foo>=1.0", "foo @ git+https://example.com/foo@main"])
+def test_a_loose_pin_is_not_pinned(line):
+    assert not pinned(line)
