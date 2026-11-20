@@ -2,7 +2,7 @@
 
 This document explains what this project is and the rules for contributing to it. Everyone who works in this repository follows it, whether a person or an AI coding agent. GitHub shows a link to this file to anyone who opens a pull request or creates an issue.[1]
 
-CHA Final starts with documentation and repository checks. The first runtime milestone is to save one explicit fact, recall it in a new Hermes session, and show a named failure when the store is unavailable. The design and operational procedures were carried forward from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Validate a component before calling it implemented here.
+Custom-Hermes-Final starts with documentation and repository checks. The first runtime milestone is to save one explicit fact, recall it in a new Hermes session, and show a named failure when the store is unavailable. The design and operational procedures were carried forward from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Validate a component before calling it implemented here.
 
 **Contents**
 

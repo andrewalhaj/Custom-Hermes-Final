@@ -4,33 +4,7 @@ This document describes where the build runs and what must be configured for it 
 
 Facts about Hermes are stated for **Hermes v0.23.1**. Re-check them before upgrading Hermes.
 
-**CHA Final status.** Sections 1–8 preserve the deployment reference from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Bare issue numbers refer to that project. CHA Final has no deployment at bootstrap. Use disposable infrastructure for the first milestone and rehearse migration and rollback there before connecting this rebuild to the shared store.
-
-## Legacy memory rehearsal
-
-Use two disposable PostgreSQL databases. Restore a fixed copy of the old `memory.facts` into the source. Apply all CHA Final migrations to an empty destination. Set `CHA_FINAL_LEGACY_DATABASE_URL` to the source connection string and `CHA_FINAL_DATABASE_URL` to the destination connection string through the operator's private environment. Use a source account with read access only. Keep connection strings and the project map out of Git.
-
-Prepare a JSON object mapping each used legacy project label to the network origin that should own it in CHA Final. For example, `{"git.example/team/project":"https://git.example/team/project.git"}`. Review each association against the source snapshot. If an old key combined multiple repositories, resolve that ambiguity before import. A fact with a missing mapping stops the import. Genuinely unscoped facts remain unscoped.
-
-Run `python -m scripts.import_legacy --project-map <file>` from the repo with the pinned Hermes environment. This reads the source in a read-only transaction and reports the number of eligible facts without opening the destination. Keep the source snapshot and reviewed mappings fixed. To write to the empty disposable destination, rerun with `--apply`. A repeat of that snapshot imports zero rows. A different snapshot or an initially nonempty destination is refused.
-
-The rehearsal carries over the current body and resolved project of a live fact in legacy creation order. The importer redacts each fact body before writing it. Retired and superseded facts and session digests are excluded. Vectors, event history, and session metadata are outside this importer. Verify recall from the matching workspace and from a separate workspace. A production snapshot and cutover require their own verification.
-
-## Lexical recall baseline
-
-Use the pinned Hermes v0.23.1 Python environment and a fresh disposable PostgreSQL database with all CHA
-Final migrations applied. Set `CHA_FINAL_EVAL_DATABASE_URL` in the private environment to the fixture
-database's connection string. From the checkout run:
-
-```sh
-python -B -m evals.lexical
-```
-
-The runner refuses existing data in the CHA Final tables before writing fixture facts. It creates a
-temporary Hermes profile, runs the checked-in synthetic queries and prints JSON to standard output.
-The database and seeded rows are left for the caller's disposable database lifecycle. Supply a fresh
-migrated database for each run, and keep the fixture unchanged for before-and-after comparisons. The
-runner uses no model APIs.
+**Status.** Sections 1–8 preserve the deployment reference from [the previous Hermes repository](https://github.com/andrewalhaj/Custom-Hermes-Agent-Final). Bare issue numbers refer to that project. This repository has no deployment yet. Use disposable infrastructure for the first milestone and rehearse migration and rollback there before connecting it to the shared store.
 
 ## 1. Deployment values
 
@@ -99,7 +73,7 @@ Every machine that runs the agent:
    | `plugins.hook_callback_timeout` | 30 (default) or more | Hermes skips a `pre_llm_call` hook that runs past it and lets the turn go ahead, so a lower value can let a guard's turn through (ARCHITECTURE.md section 5.5).[3] The startup check fails otherwise (#69). |
    | `approvals.cron_mode`, `approvals.single_query_mode`, `approvals.unattended_mode` | `deny` (default) | Nobody can answer in these contexts. Hermes treats several spellings besides `approve` as approve, which lets the write gate's requests through unasked.[3] The startup check fails unless Hermes's own reader reports `deny`. |
 5. **Never runs the agent with yolo on, by any route.** The `--yolo` flag, the `HERMES_YOLO_MODE` variable, the `/yolo` command in a CLI or gateway session, and a one-shot run started with `hermes -z` all make Hermes's approval gate approve without asking.[3] The startup check fails when it sees `HERMES_YOLO_MODE` set, and the write gate blocks outright when Hermes reports yolo for a session, however it was turned on (ARCHITECTURE.md section 5.3).
-6. **Has the build installed as one Hermes plugin**, which carries the memory provider, the guards and the skills, from its directory in the previous repository (ARCHITECTURE.md section 1), with Hermes's own commands. Placeholders: `<owner>/<repo>` refers to the previous repository until CHA Final has a tested plugin release, and `<commit>` is the full hash of a commit on `main`. The plugin, its directory and its manifest are all named `custom_build`.
+6. **Has the build installed as one Hermes plugin**, which carries the memory provider, the guards and the skills, from its directory in the previous repository (ARCHITECTURE.md section 1), with Hermes's own commands. Placeholders: `<owner>/<repo>` refers to the previous repository until this repository has a tested plugin release, and `<commit>` is the full hash of a commit on `main`. The plugin, its directory and its manifest are all named `custom_build`.
    - **Install:** `hermes plugins install <owner>/<repo>#custom_build --ref <commit> --enable --yes-deps`. Hermes copies only that directory into `plugins/custom_build` in the Hermes home, which `hermes update` leaves in place.[2] For a plugin that is also a memory provider, `--enable` selects it as `memory.provider` and does not add it to `plugins.enabled`.[3] When Hermes's install scan returns a caution, the install prints the findings and asks before going on; with no terminal to answer, it refuses. Run it in a terminal to answer; `--force` accepts a caution without showing them (Update, below).[3]
    - **Enable:** `hermes plugins enable custom_build`, which adds it to `plugins.enabled`. Without this step the ordinary load never happens, so the guards' hooks are not registered at all (ARCHITECTURE.md section 1), and the startup check fails.[3]
    - **Update:** install again with `--force --ref <commit> --yes-deps`, then restart Hermes, because a running Hermes keeps the environment it started with. Where the gateway runs as the service (item 7), the restart is `systemctl restart hermes-gateway`, which runs the startup check on the new code first; the old gateway has already stopped, so a failed check leaves the host offline, retrying about every 5 minutes, until it is fixed or the previous commit is installed again. Run `hermes custom-build check` by hand before the restart. An install pinned with `--ref` refuses `hermes plugins update`, so a host only changes when a new commit is named. `--force` also accepts a caution from Hermes's install scan without asking and without showing what the scan found.[3] The first agent host was updated this way, with the plugin's packages already installed: the selection and settings were kept, and the service's restart ran the check (#61). An update whose packages change has not been run (#73).
@@ -128,14 +102,12 @@ Every machine that runs the agent:
 
 ## 4. Scheduled jobs
 
-**CHA Final heartbeat smoke check.** With the current plugin enabled in a disposable profile and the CHA Final migrations applied to its test store, run `hermes custom-build heartbeat`. A successful run exits quietly and appends one `host.heartbeat` row to `cha_final.events` with `result = 'ok'` and `source` equal to the database login. A failed run prints its event code and exits nonzero. The cron wrapper is `custom_build/scripts/custom-build-heartbeat.py`; the job schedule and other jobs below are the deployment reference.
-
 | Job | Runs | What it does | Its own failure |
 |---|---|---|---|
 | Retention | Daily at 03:30 GMT | Deletes `events` rows older than 90 days, except `guard.bypassed` rows; session chunks too, once their table exists. Misses worth keeping are copied into the eval set before then (ARCHITECTURE.md section 3.8). Runs inside the database: a function a migration adds, scheduled by Supabase's `pg_cron`, so no host holds a login that can delete (ARCHITECTURE.md section 4.3). `pg_cron` 1.6.4 is available on the project but not yet installed (#92). | A run records `job.succeeded` naming `retention`; a missing one is `job.missed`. A failed run rolls back, and its error is in `pg_cron`'s run history |
 | Heartbeat | Every 6 hours, on every agent host (#43) | Writes one `host.heartbeat` event, and records `guard.bypassed`, once, for each local session started in safe mode or with the profile's settings ignored, which ran with no part of the build, or whose launch policy it cannot read (ARCHITECTURE.md section 5.6, #23). On a host with `embedding: deepinfra`, it also checks the hosted build's reference vector, keeping the cosine in the heartbeat's `detail`, and records `embed.model_mismatch`, `embed.refused` or `embed.unavailable` after the heartbeat when the check fails (#239) | Exits non-zero, so Hermes sends its error alert, which names the code: `config.missing` (on the hosted route, `DEEPINFRA_API_KEY` too; on any host, an `embedding` value that names no route), `db.auth` or `db.unreachable`, `events.write_failed`, or `unhandled` and `job.failed`. A failed reference check is not a failed heartbeat: it goes to the daily report. A heartbeat that never runs is caught by the job-health check |
 | Job-health check | Daily, before the report | Flags any job with no fresh success (`job.missed`) and any job that took input but produced nothing for more than one run (`job.no_output`), and records `host.missing` for any machine in `<agent-hosts>` with no heartbeat in the last 24 hours (ARCHITECTURE.md section 6.3). A host's missing heartbeat is reported as `host.missing` only, not also as `job.missed`. A job counts as having run when it records `job.succeeded`, naming itself; the check records one too. Its list of jobs holds the daily report and retention (#134, #138, #95). | A failed run exits non-zero, so Hermes sends its error alert, which names the code, as the heartbeat's does. A day it does not run at all records no `job.succeeded` for it, for the report to notice |
-| Daily failure report | Daily at 07:00, the job host's local time | The previous job sent the last 24 hours of failures. CHA Final must cover persisted failures and degraded outcomes since the last successful report, grouped by code and machine, the sessions recorded as `guard.bypassed` among them, with each code's severity and whether it is shown in the turn, as a dated Markdown file to `<operators-channel>`: it writes a file named `doc_<id>_failures-<date>.md` to Hermes's document cache and prints a `MEDIA:` line, which Hermes sends as an attachment. With nothing to report it sends a one-line all-clear that names the jobs that ran; Hermes wraps either in its own header and footer unless `cron.wrap_response` is `false`. A day the job-health check did not run is recorded as `job.missed` for it, and reported. The write gate's "always" answers are not reported yet: no code records them while the gate runs in `log` mode (#140). | A missing report. A failed run exits non-zero, so Hermes sends its error alert, naming the code, instead of the report |
+| Daily failure report | Daily at 07:00, the job host's local time | The previous job sent the last 24 hours of failures. This build must cover persisted failures and degraded outcomes since the last successful report, grouped by code and machine, the sessions recorded as `guard.bypassed` among them, with each code's severity and whether it is shown in the turn, as a dated Markdown file to `<operators-channel>`: it writes a file named `doc_<id>_failures-<date>.md` to Hermes's document cache and prints a `MEDIA:` line, which Hermes sends as an attachment. With nothing to report it sends a one-line all-clear that names the jobs that ran; Hermes wraps either in its own header and footer unless `cron.wrap_response` is `false`. A day the job-health check did not run is recorded as `job.missed` for it, and reported. The write gate's "always" answers are not reported yet: no code records them while the gate runs in `log` mode (#140). | A missing report. A failed run exits non-zero, so Hermes sends its error alert, naming the code, instead of the report |
 
 Every job other than retention runs through the job wrapper (ARCHITECTURE.md section 6.1), so a crash is recorded in `events` as `unhandled` and `job.failed` before the job exits non-zero.
 
@@ -229,47 +201,6 @@ The same applies to every other direct dependency: read its release notes in its
 The files in `migrations/` are applied to `<project-ref>` in file-name order, each once, after its pull request merges. A maintainer applies each one, or approves applying it, through the Supabase Management API's `POST /v1/projects/<project-ref>/database/migrations`, with the file's text as the query and its file name without `.sql` as the name, such as `0004_memory_events_retention`, which is how the first four are recorded (read from the store on 2026-11-16). Supabase runs it and records it in the project's migration history, `supabase_migrations.schema_migrations`.[4] Read the history back afterwards: the newest entry is the file just applied. Then read back which role can grant each group role (`pg_auth_members`), because that role is the one that creates the login roles in section 3. Apply a migration before installing or updating any host's plugin to a commit that needs it. **Historical C10 exception.** Before applying `0007_memory_events_own_source` from the previous build, which makes the store refuse an event whose `source` is not the login's name, check every agent host: run `select current_user` through the host's own connection string and compare it with the host's `machine_name` (section 3). Apply `0007` only when they are equal on every host; on a host where they differ, every event, heartbeats included, would be refused from the moment it is applied, and the plugin deployed before it does not check for this. Rule C10 (CONTRIBUTING.md section 5.1) keeps every migration working with the plugin deployed before it, the expand-and-contract pattern,[11] so hosts are updated afterwards, one at a time, and a plugin can be rolled back to its previous commit without touching the store. Applying every file to an empty Postgres instance catches invalid migrations. To establish C10, also apply each new migration to a populated disposable store and exercise the preceding deployed build against it with the application role. Include platform-specific roles or extensions when the migration depends on them.
 
 ## 8. Deploying to an agent host
-
-### Current CHA Final startup check
-
-Run `hermes custom-build check` with the pinned Hermes v0.23.1 executable and the intended profile.
-Enable `custom_build`, select it as `memory.provider`, and set `CHA_FINAL_DATABASE_URL` to the restricted
-runtime login's connection string in that profile's `.env`. Exit 0 means Hermes loaded the selected
-provider and it reports availability. The runtime connection must permit writes and be out of
-recovery. A separate read-only transaction then checks the required facts, project facts and events
-statements. The check inspects read access, insert planning and the project-fact sequence privilege.
-It leaves fact rows, events and sequences untouched. Runtime smoke tests still exercise real writes
-and recalls.
-
-Exit 1 prints a failure code and records it locally. `guard.not_loaded` means the required provider
-is unselected or could not load, `config.missing` means the database setting is absent or malformed,
-`db.unreachable` means the database could not be reached, `db.behind` means a required relation or
-column is missing, and `db.query` means the runtime target is read-only or the access check was refused or timed out. If the
-ordinary plugin failed to load, Hermes itself may report that the command is unavailable.
-
-### Disposable rollout and rollback rehearsal
-
-Use the pinned Hermes v0.23.1 environment from `.github/workflows/ci.yml`, a full Git checkout, and a
-disposable PostgreSQL 17 server. Set `CHA_FINAL_TEST_DATABASE_URL` to that server's connection string
-with permission to create and drop disposable databases and roles. The test skips when this variable is
-unset. Run from the checkout root:
-
-```sh
-python -B -m unittest discover -s tests -p test_disposable_rollout.py -v
-```
-
-The rehearsal stages the plugin directly from Git archives in one temporary Hermes home. It writes a
-synthetic fact through the plugin revision before migration 0003 with a restricted login, applies 0003
-to the populated database, and recalls that fact through `HEAD`. It then introduces a registration
-failure into the disposable candidate, verifies that a fresh Hermes process fails validation, and
-replaces the entire plugin directory with the previous revision. It compares the installed file bytes
-with that revision, verifies a new write and recall in separate Hermes processes, recalls the original
-fact again, and checks that migration 0003 remains applied. An overlay leaves files from the candidate
-behind and fails the file comparison.
-
-This is a rehearsal of plugin discovery, memory dispatch and schema compatibility. The Git archives
-are staged directly in the test. The Hermes installer, gateway, systemd, SSH and Supabase are outside
-the rehearsal.
 
 ### Historical procedure from the previous repository
 
