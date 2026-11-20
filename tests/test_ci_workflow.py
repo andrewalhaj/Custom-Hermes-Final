@@ -8,6 +8,7 @@ Needs `git`, `ruff`, `gitleaks` and `python` on PATH, as the CI job has them.
 """
 
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -519,6 +520,35 @@ def test_the_review_runs_only_where_the_secret_can_be_read():
     assert " || " not in condition   # every condition must hold
 
 
+def holds(condition, event):
+    """Evaluate the job's `if:`: clauses of `a == b` or `a != b` joined by `&&`, against a sample event.
+
+    This is this file's reading of the expression, not GitHub's evaluator: GitHub compares strings without
+    regard to case, for one. It catches a dropped, flipped or re-joined clause, which a text match does not.
+    """
+    def value(term):
+        return term.strip("'") if term.startswith("'") else event[term]
+    results = []
+    for clause in condition.split("&&"):
+        left, operator, right = re.fullmatch(r"\s*(\S+)\s*(==|!=)\s*(\S+)\s*", clause).groups()
+        results.append((value(left) == value(right)) == (operator == "=="))
+    return all(results)
+
+
+OURS = {"github.event_name": "pull_request", "github.repository": "o/r",
+        "github.event.pull_request.head.repo.full_name": "o/r", "github.event.pull_request.user.login": "a-person"}
+
+
+@pytest.mark.parametrize("label,change,runs", [
+    ("a branch of this repository", {}, True),
+    ("a fork", {"github.event.pull_request.head.repo.full_name": "someone/r"}, False),
+    ("opened by Dependabot", {"github.event.pull_request.user.login": "dependabot[bot]"}, False),
+    ("a push to main", {"github.event_name": "push"}, False),
+])
+def test_the_review_condition_is_evaluated_against_sample_events(label, change, runs):
+    assert holds(review_job()["if"], {**OURS, **change}) is runs
+
+
 def test_the_review_job_can_only_read():
     assert review_job()["permissions"] == {"contents": "read", "issues": "read", "pull-requests": "read"}
 
@@ -530,6 +560,17 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
     assert 'python scripts/review.py "$BRANCH" "$ISSUE"' in step["run"]
     assert step["env"]["BRANCH"] == "${{ github.event.pull_request.head.ref }}"   # in env, never in the script
     assert "${{" not in step["run"]
+    # The reviewer's own environment holds the subscription token and nothing else that is secret (#35).
+    assert sorted(step["env"]) == ["BRANCH", REVIEW_TOKEN, "ISSUE"]
+    assert '--issue-file "$RUNNER_TEMP/issue.txt"' in step["run"]
+
+
+def test_the_issue_text_is_fetched_in_its_own_step_with_the_github_token():
+    step = review_step("read the issue")
+    assert step["env"] == {"GH_TOKEN": "${{ github.token }}", "ISSUE": "${{ steps.issue.outputs.issue }}"}
+    assert step["run"].strip() == 'gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"'
+    names = [s.get("name") for s in review_job()["steps"]]
+    assert names.index(ISSUE_STEP) < names.index("read the issue") < names.index("review the branch")
 
 
 def test_the_review_checks_out_the_branch_with_its_history_and_a_pinned_claude_code():
@@ -540,11 +581,34 @@ def test_the_review_checks_out_the_branch_with_its_history_and_a_pinned_claude_c
     # persist-credentials false: the job's token must not sit in .git/config, where the reviewer can read it.
     assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.sha }}", "fetch-depth": 0,
                                 "persist-credentials": False}
-    name =review_step("name the checkout as the branch")
-    assert name["run"].strip().startswith('git checkout -B "$BRANCH"')
+    name = review_step("name the checkout as the branch")
     assert name["env"] == {"BRANCH": "${{ github.event.pull_request.head.ref }}"}
     commands = [s.get("run", "") for s in job["steps"]]
     assert "npm install --global @anthropic-ai/claude-code@2.1.322" in commands
+
+
+def name_branch(tmp_path, branch):
+    committed_repo(tmp_path, {"a.py": CODE})
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
+                             review_step("name the checkout as the branch")["run"]],
+                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("git")).parent),
+                                 "HOME": str(tmp_path), "BRANCH": branch})
+    current = subprocess.run(["git", "-C", str(tmp_path), "branch", "--show-current"],
+                             check=True, capture_output=True, text=True).stdout.strip()
+    return result.returncode, result.stdout + result.stderr, current
+
+
+def test_the_checkout_is_named_as_the_branch(tmp_path):
+    code, output, current = name_branch(tmp_path, "feat/x")
+    assert code == 0 and current == "feat/x", output
+
+
+@pytest.mark.parametrize("branch", ["-f", "--orphan", "-"])
+def test_a_branch_name_git_would_read_as_an_option_is_refused(tmp_path, branch):
+    code, output, current = name_branch(tmp_path, branch)
+    assert code != 0 and "begins with a dash" in output
+    assert current != branch
 
 
 def find_issue(tmp_path, body):
@@ -578,20 +642,21 @@ def test_the_issue_step_takes_the_body_from_the_environment():
     assert review_step("review the branch")["env"]["ISSUE"] == "${{ steps.issue.outputs.issue }}" and step["id"] == "issue"
 
 
-def run_review_step(tmp_path, exit_with):
+def run_review_step(tmp_path, exit_with, filler=0, char="x"):
     """Run the review step's script with a stand-in for scripts/review.py that prints to both streams and exits."""
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "review.py").write_text(
         f"import sys\nprint('C3   fail   returns [] on a timeout')\nprint('```text a quoted fence')\n"
-        f"print('~' * 12)\nprint('::warning::a forged annotation')\n"
+        f"print('~' * 12)\nprint('::warning::a forged annotation')\nsys.stdout.flush()\n"
+        f"sys.stdout.buffer.write(({char!r} * {filler} + chr(10)).encode('utf-8', 'surrogateescape'))\nprint('the last line')\n"
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
-                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            check=False, capture_output=True, text=True, errors="replace", cwd=tmp_path,   # the log is raw
                             env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
                                  "BRANCH": "feat/x", "ISSUE": "7", "GITHUB_STEP_SUMMARY": str(summary),
                                  "RUNNER_TEMP": str(tmp_path)})
-    return result.returncode, result.stdout + result.stderr, summary.read_text()
+    return result.returncode, result.stdout + result.stderr, summary.read_bytes().decode("utf-8")   # must be valid
 
 
 @pytest.mark.parametrize("exit_with", [3, 4, 1])   # fix first, an incomplete report, a crash
@@ -615,6 +680,45 @@ def test_a_review_that_does_not_ship_fails_the_step_and_still_reaches_the_summar
 
 def test_a_review_that_ships_passes_the_step(tmp_path):
     assert run_review_step(tmp_path, 0)[0] == 0
+
+
+def test_a_report_too_big_for_the_summary_is_cut_there_and_whole_in_the_log(tmp_path):
+    # GitHub refuses a step summary over about 1 MiB; the upload failing would hide the result.
+    code, log, summary = run_review_step(tmp_path, 3, filler=1_200_000)
+    assert code == 3
+    assert len(summary.encode()) < 1_000_000 and "report cut here" in summary and "the last line" not in summary
+    assert "the last line" in log and "C3   fail" in summary
+    lines = summary.splitlines()
+    assert set(lines[-1]) == {"~"} and lines[0] == lines[-1] + "text"   # still one closed block
+
+
+@pytest.mark.parametrize("char", ["é", "€", "𝄞"])   # two, three and four bytes: one of them is cut mid-character
+def test_a_cut_inside_a_character_leaves_a_valid_summary(tmp_path, char):
+    code, _, summary = run_review_step(tmp_path, 3, filler=600_000, char=char)   # run_review_step decodes it
+    assert code == 3 and "report cut here" in summary and len(summary.encode()) < 1_000_000
+
+
+def test_a_byte_that_is_not_utf8_shows_in_the_summary_and_is_not_dropped(tmp_path):
+    code, _, summary = run_review_step(tmp_path, 3, filler=1, char="\udcff")   # written as the lone byte 0xff
+    assert code == 3 and "\ufffd" in summary and "the last line" in summary
+
+
+def read_issue(tmp_path, gh_exit):
+    """Run the step that fetches the issue, with a stand-in `gh` that prints its arguments and exits."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*"\nexit {gh_exit}\n')
+    (bin_dir / "gh").chmod(0o755)
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("read the issue")["run"]],
+                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ISSUE": "7", "RUNNER_TEMP": str(tmp_path)})
+    return result.returncode, (tmp_path / "issue.txt").read_text()
+
+
+def test_the_issue_step_writes_what_gh_prints_and_fails_when_gh_fails(tmp_path):
+    assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n")
+    (tmp_path / "failed").mkdir()
+    assert read_issue(tmp_path / "failed", 1)[0] == 1
 
 
 def test_the_review_job_cannot_hang_or_pile_up():

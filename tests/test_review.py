@@ -130,9 +130,11 @@ class FakeRun:
                         ("git", "diff"): "+ a line\n", ("git", "log"): "abc a commit\n", ("gh", "issue"): "the issue\n",
                         ("claude", "-p"): review.json.dumps({"structured_output": report})}
         self.ran = []
+        self.given = []   # what each command was handed on stdin
 
     def __call__(self, command, **kwargs):
         self.ran.append(tuple(command[:2]))
+        self.given.append(kwargs.get("input"))
         return review.subprocess.CompletedProcess(command, 0, stdout=self.answers[tuple(command[:2])])
 
 
@@ -171,3 +173,19 @@ def test_a_run_with_no_structured_output_crashes(monkeypatch):
     fake.answers[("claude", "-p")] = "{}"
     with pytest.raises(KeyError, match="structured_output"):
         run_main(monkeypatch, fake)
+
+
+def test_an_issue_file_is_used_in_place_of_gh(monkeypatch, tmp_path):
+    # In CI the issue is fetched in an earlier step, so the reviewer's step holds no GitHub token (#35).
+    (tmp_path / "issue.txt").write_text("the issue, from a file\n", encoding="utf-8")
+    fake = FakeRun(report=report())
+    monkeypatch.setattr(review.subprocess, "run", fake)
+    assert review.main(["feat/x", "7", "--issue-file", str(tmp_path / "issue.txt")]) == 0
+    assert ("gh", "issue") not in fake.ran
+    assert "the issue, from a file" in fake.given[-1] and "the issue\n" not in fake.given[-1]
+
+
+def test_without_an_issue_file_the_issue_comes_from_gh(monkeypatch):
+    fake = FakeRun(report=report())
+    assert run_main(monkeypatch, fake) == 0
+    assert ("gh", "issue") in fake.ran and "the issue\n" in fake.given[-1]

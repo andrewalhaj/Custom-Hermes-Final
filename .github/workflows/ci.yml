@@ -221,7 +221,12 @@ jobs:
         shell: bash
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: git checkout -B "$BRANCH"   # the script checks that the branch is checked out by name
+        run: |
+          # The script checks that the branch is checked out by name. Git would read a dash-led name as an option.
+          case "$BRANCH" in
+            -*) echo "the branch name begins with a dash: git would read it as an option"; exit 1 ;;
+          esac
+          git checkout -B "$BRANCH"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
         with: { python-version: "3.14" }
       - run: npm install --global @anthropic-ai/claude-code@2.1.322
@@ -239,17 +244,22 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"issue={found.group(1)}\n")
           PY
+      - name: read the issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}   # read-only; kept out of the step that runs the reviewer
+          ISSUE: ${{ steps.issue.outputs.issue }}
+        run: gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"
       - name: review the branch
         shell: bash
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # the Claude subscription; this step only
-          GH_TOKEN: ${{ github.token }}   # read-only, for `gh issue view`
           BRANCH: ${{ github.event.pull_request.head.ref }}
           ISSUE: ${{ steps.issue.outputs.issue }}
         run: |
           # The report, with any reason it is incomplete (stderr), goes to the log and to the job summary.
           set +e
-          python scripts/review.py "$BRANCH" "$ISSUE" > "$RUNNER_TEMP/review.txt" 2>&1
+          python scripts/review.py "$BRANCH" "$ISSUE" --issue-file "$RUNNER_TEMP/issue.txt" > "$RUNNER_TEMP/review.txt" 2>&1
           code=$?
           set -e
           # The report is model output. The runner must not act on a line in it that looks like a workflow command.
@@ -257,8 +267,17 @@ jobs:
           echo "::stop-commands::$token"
           cat "$RUNNER_TEMP/review.txt"
           echo "::$token::"
-          # A tilde fence longer than any run of tildes in the report, so nothing in the report can close it.
-          fence=$(python -c 'import re, sys; print("~" * (max(map(len, re.findall("~+", open(sys.argv[1]).read())), default=7) + 1))' "$RUNNER_TEMP/review.txt")
-          { echo "${fence}text"; cat "$RUNNER_TEMP/review.txt"; echo "$fence"; } >> "$GITHUB_STEP_SUMMARY"
+          # The job summary gets the report as one text block. GitHub refuses a summary over about 1 MiB, so a
+          # longer report is cut there; the log above has all of it.
+          python - "$RUNNER_TEMP/review.txt" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import re, sys
+          data = open(sys.argv[1], "rb").read()
+          text = data[:900000].decode("utf-8", errors="replace")   # a byte that is not UTF-8 shows as U+FFFD
+          if len(data) > 900000:
+              text = text.rstrip("\ufffd")   # the cut may fall inside a character
+              text += "\n[report cut here: it is too long for a job summary; the job log has all of it]"
+          fence = "~" * (max(map(len, re.findall("~+", text)), default=7) + 1)   # nothing in the report can close it
+          sys.stdout.buffer.write(f"{fence}text\n{text.rstrip(chr(10))}\n{fence}\n".encode("utf-8"))
+          PY
           # 0 = ship; 3 = fix first; 4 = an incomplete report; anything else = the review did not run
           exit "$code"
