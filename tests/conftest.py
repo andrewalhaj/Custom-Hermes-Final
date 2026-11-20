@@ -3,9 +3,9 @@
 `db` gives each test an empty database with every migration applied in order, a login that joins
 `memory_agent` the way a maintainer adds a machine (OPERATIONS.md section 3), and a login that joins no
 group. The tests need a Postgres 17 server named by TEST_DATABASE_URL, a superuser connection; they fail,
-never skip, without it (C3). The group role is server-wide, and each test drops it when it ends, so the
-server must be a throwaway one used by one test run at a time. A role left over from an interrupted run
-makes the migration fail loudly instead of being dropped silently.
+never skip, without it (C3). Roles are server-wide, so the server must be a throwaway one used by one test
+run at a time. The fixture fails before creating anything when the server already has one of its roles,
+including one left over from an interrupted run, and drops only the roles it created.
 """
 
 import os
@@ -19,6 +19,14 @@ from psycopg import sql
 MIGRATIONS = sorted((pathlib.Path(__file__).resolve().parent.parent / "migrations").glob("*.sql"))
 GROUP_ROLES = ("memory_agent",)
 AGENT = "host-a"   # a machine's login is named as the machine
+
+
+def refuse_existing_roles(admin):
+    """Fail before anything is created when the server already has a role the tests make (C7)."""
+    found = admin.execute("select rolname from pg_roles where rolname = any(%s) order by rolname",
+                          ([AGENT, *GROUP_ROLES],)).fetchall()
+    if found:
+        pytest.fail(f"the server already has {', '.join(r for (r,) in found)}: use a throwaway Postgres")
 
 
 def _drop_roles(admin, names):
@@ -43,6 +51,7 @@ def db():
         return psycopg.conninfo.make_conninfo(**{**info, "dbname": name, **kw})
 
     with psycopg.connect(url, autocommit=True) as admin:
+        refuse_existing_roles(admin)   # so the cleanup below drops only roles this run created
         admin.execute(sql.SQL("create database {}").format(sql.Identifier(name)))
         try:
             with psycopg.connect(dsn(), autocommit=True) as owner:

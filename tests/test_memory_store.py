@@ -5,7 +5,6 @@ machine's role, deleting a row or altering a table is refused.
 """
 
 import os
-import pathlib
 import re
 
 import psycopg
@@ -144,20 +143,5 @@ def migration_number(path):
 
 
 def test_migrations_are_numbered_from_one_without_gaps():
+    # With test_the_agent_reads_the_store_level, this fails the newest migration when it forgets to set the level.
     assert [migration_number(p) for p in MIGRATIONS] == list(range(1, len(MIGRATIONS) + 1))
-
-
-@pytest.mark.parametrize("migration", MIGRATIONS, ids=lambda p: p.name)
-def test_each_migration_sets_the_store_level_to_its_own_number(migration):
-    number = migration_number(migration)
-    text = migration.read_text(encoding="utf-8")
-    pattern = (r"insert into memory\.schema_level \(level\) values \(1\);" if number == 1
-               else rf"update memory\.schema_level set level = {number};")
-    assert re.search(pattern, text), f"{migration.name} does not set memory.schema_level to {number}"
-
-
-def test_the_level_check_fails_a_migration_that_forgets_it(tmp_path):
-    forgot = pathlib.Path(tmp_path / "0002_forgot.sql")
-    forgot.write_text("create table memory.later (id int);\n")
-    with pytest.raises(AssertionError, match="0002_forgot.sql does not set"):
-        test_each_migration_sets_the_store_level_to_its_own_number(forgot)
