@@ -1,0 +1,26 @@
+# Allow-list (CONTRIBUTING.md section 8): everything is ignored unless a line below allows it.
+# A new directory or file type needs a line here first, or git will not show it.
+# tests/test_bootstrap.py proves both directions.
+
+/*
+!/.gitignore
+!/AGENTS.md
+!/ARCHITECTURE.md
+!/CONTRIBUTING.md
+!/OPERATIONS.md
+!/pyproject.toml
+!/.github/
+!/.githooks/
+!/tests/
+
+/.github/*
+!/.github/dependabot.yml
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/*.yml
+
+/.githooks/*
+!/.githooks/pre-commit
+
+/tests/*
+!/tests/*.py
