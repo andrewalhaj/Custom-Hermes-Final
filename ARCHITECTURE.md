@@ -548,6 +548,8 @@ Hermes's memory tool enforces the size limits of `MEMORY.md` and `USER.md` itsel
 
 Every point of failure has a name, and a failure, an empty result and a fallback can always be told apart. The rules are F1–F6 in CONTRIBUTING.md; this section describes the mechanism.
 
+**Status.** `custom_build/failures.py` holds the catalog below, with `SEVERITY` and `SHOWN_IN_TURN` (#61 in this repository), and `tests/test_failures.py` holds it to the table in 6.1. `SHOWN_IN_TURN` is empty, because no code that runs in a turn is written, and a code the table in 6.1 marks "Not a failure" has no severity; the gates' decision codes are among them. Nothing else in this section is built yet: the recording helper, the two wrappers, the daily report and the absence checks are planned.
+
 ### 6.1 The failure catalog
 
 The catalog is one module in the package. It lists every failure code; beside it, `SEVERITY` gives each failure code's severity (high, medium or low) and `SHOWN_IN_TURN` names the codes the build shows in a turn, and the daily report prints both (#35). A test fails the build if a failure code has no severity. The catalog also lists the events that are not failures, such as `host.heartbeat`, because the recording helper takes only codes in the catalog (CONTRIBUTING.md rules L3 and F6). A test fails the build if any handler or fallback emits a code that is not in it, or emits none.
@@ -575,12 +577,12 @@ Initial codes:
 | `digest.dropped` | Not a failure: a session's digest was not stored, because the judge did not keep it or a later or concurrent digest of the session is live (#156) |
 | `guard.bypassed` | The heartbeat found a local session started in safe mode or with the profile's settings ignored, which ran with no part of the build, or one whose launch policy it cannot read (section 5.6) |
 | `guard.crash`, `guard.not_loaded` | A guard raised during a turn (recorded instead of `unhandled`), or the startup check found a guard's hooks or the provider not loaded, or the memory provider found, when it started, that the guards had not loaded |
-| `write_gate.requested`, `write_gate.blocked` | Enforcing-mode decisions sent to Hermes approval or blocked before prompting. |
-| `write_gate.approved`, `write_gate.always`, `write_gate.denied`, `write_gate.unanswered` | Human approval responses scoped to the write gate. |
+| `write_gate.requested`, `write_gate.blocked` | Not failures: enforcing-mode decisions sent to Hermes approval or blocked before prompting. |
+| `write_gate.approved`, `write_gate.always`, `write_gate.denied`, `write_gate.unanswered` | Not failures: human approval responses scoped to the write gate. |
 | `write_gate.would_ask`, `write_gate.would_block` | Not failures: in `log` mode, the write gate saw a call on its list that `on` would send to a person for approval, or would block outright (section 5.3) |
-| `verify_gate.blocked`, `verify_gate.withheld` | Enforcing-mode decisions for a managed change or file claim without a successful read. |
+| `verify_gate.blocked`, `verify_gate.withheld` | Not failures: enforcing-mode decisions for a managed change or file claim without a successful read. |
 | `verify_gate.would_block`, `verify_gate.would_withhold` | Not failures: in `log` mode, a call would change a listed file or setting the session never read, or a reply stated a listed file's contents the session never read (section 5.3) |
-| `fact_gate.armed`, `fact_gate.would_withhold`, `fact_gate.withheld`, `fact_gate.passed` | The user asked a checkable question, a reply lacked a required lookup (recorded in `log` mode or withheld in `on` mode), or a reply met the lookup rules (section 5.3) |
+| `fact_gate.armed`, `fact_gate.would_withhold`, `fact_gate.withheld`, `fact_gate.passed` | Not failures: the user asked a checkable question, a reply lacked a required lookup (recorded in `log` mode or withheld in `on` mode), or a reply met the lookup rules (section 5.3) |
 | `recall_gate.armed`, `recall_gate.would_withhold`, `recall_gate.passed` | Not failures: in `log` mode, the user asked about past work or open work; the reply came without both the memory search and the session search; or it came with both (section 5.3) |
 | `config.unsafe` | The startup check found a Hermes setting with a value the build does not support (section 5.5) |
 | `config.missing` | A setting the build needs is missing or invalid: the startup check fails, a scheduled job stops, and inside Hermes every turn is blocked (section 5.5). A machine name that is not the store's login's name fails the startup check with this code and no row, because the store refuses the row |

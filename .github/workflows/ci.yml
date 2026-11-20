@@ -23,6 +23,18 @@ jobs:
         with: { fetch-depth: 0 }   # the secret scan reads the whole history
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
         with: { python-version: "3.14" }
+      - name: install Hermes v0.23.1 from its own lock file
+        shell: bash
+        run: |
+          # tests/test_plugin_load.py loads the plugin through Hermes itself. Hermes refuses to build a wheel
+          # and its pyproject pins conflict, so: its locked pins, then Hermes editable at the tag's commit,
+          # neither resolved again. The dev group, installed next, shares no package with the pins but
+          # packaging and pygments; Hermes reads YAML through ruamel-yaml, which is in its pins.
+          git clone --quiet --depth 1 --branch v0.23.1 https://github.com/NousResearch/hermes-agent "$RUNNER_TEMP/hermes-agent"
+          [ "$(git -C "$RUNNER_TEMP/hermes-agent" rev-parse HEAD)" = 3b421578588243f920886e6fe79a6faa87ea026e ] \
+            || { echo "tag v0.23.1 no longer points at the pinned commit"; exit 1; }
+          pip install --no-deps -r hermes-requirements.txt
+          pip install --no-deps -e "$RUNNER_TEMP/hermes-agent"
       - run: pip install --group dev
       - name: install gitleaks 8.30.1, checked against its published checksum
         shell: bash

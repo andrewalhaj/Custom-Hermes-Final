@@ -772,3 +772,37 @@ def test_the_review_job_cannot_hang_or_pile_up():
     job = review_job()
     assert job["timeout-minutes"] == 30
     assert job["concurrency"] == {"group": "review-${{ github.event.pull_request.number }}", "cancel-in-progress": True}
+
+
+# Hermes on the runner (8.2): tests/test_plugin_load.py loads the plugin through Hermes v0.23.1 itself.
+HERMES_COMMIT = "3b421578588243f920886e6fe79a6faa87ea026e"
+
+
+def test_hermes_is_installed_from_its_own_pins_before_the_tests_run():
+    script = step_script("install Hermes v0.23.1 from its own lock file")
+    # the tag is checked against the pinned commit, because a tag can be moved to other code
+    assert "--branch v0.23.1 https://github.com/NousResearch/hermes-agent" in script
+    assert f'rev-parse HEAD)" = {HERMES_COMMIT} ]' in script and "exit 1" in script
+    # its locked pins, then Hermes itself, neither resolved again
+    assert "pip install --no-deps -r hermes-requirements.txt" in script
+    assert 'pip install --no-deps -e "$RUNNER_TEMP/hermes-agent"' in script
+    commands = [s.get("run", "") for s in steps()]
+    assert commands.index(script) < commands.index("python -m pytest -q")
+
+
+def test_the_pins_file_names_the_commit_the_workflow_installs_and_pins_every_package_exactly():
+    pins = (ROOT / "hermes-requirements.txt").read_text(encoding="utf-8")
+    assert HERMES_COMMIT in pins.splitlines()[1]
+    lines = [line for line in pins.splitlines() if line and not line.startswith(("#", " "))]
+    assert len(lines) > 50 and [line for line in lines if not pinned(line)] == []
+
+
+def pinned(line):
+    """True for `name==version` or `name @ git+<url>@<full commit>`, read before any `;` marker."""
+    requirement = line.split(";")[0].strip()
+    return bool(re.fullmatch(r"[\w.\[\]-]+==[\w.+!]+|[\w.-]+ @ git\+\S+@[0-9a-f]{40}", requirement))
+
+
+@pytest.mark.parametrize("line", ["foo ; sys_platform == 'linux'", "foo>=1.0", "foo @ git+https://example.com/foo@main"])
+def test_a_loose_pin_is_not_pinned(line):
+    assert not pinned(line)

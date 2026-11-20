@@ -102,6 +102,10 @@ HIDDEN = [
     "scripts/notes.md",
     "migrations/.env",
     "migrations/notes.md",
+    "custom_build/.env",
+    "custom_build/notes.md",
+    "custom_build/__pycache__/failures.cpython-314.pyc",
+    "requirements.txt",
 ]
 VISIBLE = [
     ".gitignore",
@@ -118,6 +122,9 @@ VISIBLE = [
     "scripts/review.py",
     "migrations/0001_memory_store.sql",
     "migrations/0002_next.sql",
+    "custom_build/__init__.py",
+    "custom_build/plugin.yaml",
+    "hermes-requirements.txt",
 ]
 
 
