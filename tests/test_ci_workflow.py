@@ -231,6 +231,10 @@ CONFIG_CASES = [
      {"pyproject.toml": CONFIG + '[tool.ruff.lint.extend-per-file-ignores]\n"x.py" = ["E"]\n'},
      "extend-per-file-ignores: x.py: E"),
     ("no pyproject.toml", {"a.py": CODE}, "no pyproject.toml at the repository root"),
+    ("ignore a LOG code the probe does not test", {"pyproject.toml": CONFIG + 'ignore = ["LOG001"]\n'}, "ignore: LOG001"),
+    ("extend-ignore a G code the probe does not test", {"pyproject.toml": CONFIG + 'extend-ignore = ["G010"]\n'},
+     "extend-ignore: G010"),
+    ("ignore another rule", {"pyproject.toml": CONFIG + 'ignore = ["F401"]\n'}, None),
     ("per-file ignore G", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["G"]\n'},
      "per-file-ignores: pkg/*: G"),
     ("per-file ignore LOG015", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["LOG015"]\n'},
@@ -269,6 +273,8 @@ HANDLER_CASES += [
     ("addHandler", {"a.py": "import logging\nlogging.getLogger(__name__).addHandler(logging.NullHandler())\n"},
      "log handler added: a.py:2"),
     ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
+    ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
+     "broad handler outside the wrappers: my mod.py:4 in f"),
 ]
 
 
