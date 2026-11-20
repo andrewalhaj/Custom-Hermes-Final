@@ -54,22 +54,23 @@ jobs:
           fi
           [ "$code" -eq 0 ] || { echo "secret scan: gitleaks found a secret (above, redacted)"; exit "$code"; }
       - run: ruff check .
-      - name: no noqa that can silence the error-handling rules
+      - name: no noqa that can silence a protected rule
         shell: bash
         run: |
-          # Matches a bare noqa, a noqa naming one of these rules, and file-level ruff/flake8 noqa, in any case.
+          # Matches a bare noqa, a noqa naming one of the protected rules (C2: BLE001, S110, E722, S112, TID251;
+          # L1: any G or LOG code, TID251), and file-level ruff/flake8 noqa, in any case.
           set +e
-          git grep -n -i -E '#[[:space:]]*noqa([[:space:]]*$|[[:space:]]*[^:[:space:]]|:[^#]*(BLE001|S110|E722))|(ruff|flake8):[[:space:]]*noqa' -- '*.py'
+          git grep -n -i -E '#[[:space:]]*noqa([[:space:]]*$|[[:space:]]*[^:[:space:]]|:([^#]*[^[:alnum:]#])?(BLE001|S110|E722|S112|TID251|G[0-9]+|LOG[0-9]+)([^[:alnum:]]|$))|(ruff|flake8):[[:space:]]*noqa' -- '*.py'
           rc=$?
           set -e
           # 1 = no match (pass); 0 = the matches printed above; anything else = git failed
           [ "$rc" -eq 1 ] || { echo "noqa ban: git grep exited $rc (0 = the matches above, other = git failed)"; exit 1; }
-      - name: no broad catch once every suppression comment is ignored
+      - name: no protected rule fires once every suppression comment is ignored
         shell: bash
         run: |
           # The pattern above knows only the comment forms it lists. This asks ruff itself, whatever the form.
           set +e
-          out=$(ruff check --no-cache --ignore-noqa --select BLE001,S110,E722 --output-format concise .)
+          out=$(ruff check --no-cache --ignore-noqa --select BLE001,S110,E722,S112,G,LOG,TID251 --output-format concise .)
           rc=$?
           set -e
           echo "$out"
@@ -78,17 +79,70 @@ jobs:
       - name: the error-handling rules are switched on
         shell: bash
         run: |
-          # Lint a probe that breaks all three rules, with the repository's own ruff configuration.
+          # Lint a probe that breaks every selected rule, with the repository's own ruff configuration.
           # Any configuration that turns a rule off (ignore, select, ruff.toml) makes its code disappear.
           set +e
-          out=$(printf 'try:\n    pass\nexcept Exception:\n    pass\ntry:\n    pass\nexcept:\n    pass\n' \
-            | ruff check --no-cache --output-format concise --stdin-filename ci_probe.py -)
+          out=$(ruff check --no-cache --output-format concise --stdin-filename ci_probe.py - <<'PY'
+          import contextlib
+          import logging
+          try:
+              pass
+          except Exception:
+              pass
+          try:
+              pass
+          except:
+              pass
+          for _ in ():
+              try:
+                  pass
+              except Exception:
+                  continue
+          logging.basicConfig()
+          logging.info("x")
+          logging.getLogger(__name__).warning(f"{_}")
+          logging.getLogger(__name__).warning("{}".format(_))
+          logging.getLogger(__name__).warning("a" + _)
+          logging.getLogger(__file__)
+          with contextlib.suppress(ValueError):
+              pass
+          PY
+          )
           rc=$?
           set -e
           echo "$out"
           # 1 = findings reported (expected); 0 = the rules are off; anything else = ruff failed or is missing
           [ "$rc" -eq 1 ] || { echo "probe: ruff exited $rc, expected 1 (findings reported)"; exit 1; }
-          for code in BLE001 S110 E722; do grep -q "$code" <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
+          # ": CODE " is how ruff's concise output frames a finding, so a code quoted in a message does not count.
+          for code in BLE001 S110 E722 S112 G001 G003 G004 LOG002 LOG015; do grep -qF ": $code " <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
+          for api in logging.basicConfig contextlib.suppress; do
+            grep -qF "\`$api\` is banned" <<< "$out" || { echo "ruff no longer bans $api"; exit 1; }
+          done
+      - name: no broad handler outside the two wrappers, and no added log handlers
+        shell: bash
+        run: |
+          # BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the
+          # failure module's two wrappers (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which ruff does not see.
+          python - <<'PY'
+          import ast, subprocess, sys
+          ALLOWED = set()   # "path.py:qualified.name" of the two wrappers, once the failure module has them (C2)
+          def broad(t):   # nothing (bare), Exception or BaseException, by any path, alone or in a tuple
+              if isinstance(t, ast.Tuple):
+                  return any(broad(e) for e in t.elts)
+              return t is None or (t.attr if isinstance(t, ast.Attribute) else getattr(t, "id", None)) in ("Exception", "BaseException")
+          bad = []
+          def walk(node, path, func):
+              for child in ast.iter_child_nodes(node):
+                  if isinstance(child, ast.ExceptHandler) and broad(child.type) and f"{path}:{func}" not in ALLOWED:
+                      bad.append(f"broad handler outside the wrappers: {path}:{child.lineno} in {func or 'module'}")
+                  if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "addHandler":
+                      bad.append(f"log handler added: {path}:{child.lineno}")
+                  named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func)
+          for path in subprocess.run(["git", "ls-files", "-z", "*.py"], check=True, capture_output=True, text=True).stdout.split("\0")[:-1]:
+              walk(ast.parse(open(path, encoding="utf-8").read(), path), path, None)
+          sys.exit("\n".join(bad) if bad else 0)
+          PY
       - name: ruff lints every tracked Python file
         shell: bash
         run: |
@@ -108,16 +162,20 @@ jobs:
           import os, subprocess, sys, tomllib
           if not os.path.exists("pyproject.toml"):
               sys.exit("no pyproject.toml at the repository root")
-          rules = ("BLE001", "S110", "E722")
-          def covers(code):   # a code or prefix that covers one of the rules, such as "E", "BLE" or "ALL"
-              return code == "ALL" or any(r.startswith(code) for r in rules)
+          rules = ("BLE001", "S110", "E722", "S112", "G", "LOG", "TID251")
+          def covers(code):   # a prefix of a rule ("E", "ALL"), or a code inside a selected family ("G004")
+              return code == "ALL" or any(r.startswith(code) or code.startswith(r) for r in rules)
           tracked = subprocess.run(["git", "ls-files", "*ruff.toml", "*pyproject.toml"],
                                    check=True, capture_output=True, text=True).stdout.split()
           bad = [f"ruff configuration outside the root pyproject.toml: {f}" for f in tracked if f != "pyproject.toml"]
           ruff = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("ruff", {})
+          bad += [f"extend: {ruff['extend']}"] if "extend" in ruff else []   # a second settings file the checks below never read
           for section in (ruff, ruff.get("lint", {})):
               for key in ("exclude", "extend-exclude"):
                   bad += [f"{key}: {pattern}" for pattern in section.get(key, [])]
+              bad += [f"select: {c}" for c in section.get("select", [])]   # replaces the defaults; use extend-select (8.2)
+              for key in ("ignore", "extend-ignore"):
+                  bad += [f"{key}: {c}" for c in section.get(key, []) if covers(c)]
               for key in ("per-file-ignores", "extend-per-file-ignores"):
                   bad += [f"{key}: {glob}: {c}" for glob, codes in section.get(key, {}).items() for c in codes if covers(c)]
           sys.exit("\n".join(bad) if bad else 0)
