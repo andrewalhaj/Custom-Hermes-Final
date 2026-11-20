@@ -14,10 +14,12 @@ import subprocess
 import pytest
 import yaml
 
-WORKFLOW = pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yml"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 NOQA = "no" + "qa"  # kept apart so the noqa ban does not match this file
-CONFIG = '[tool.ruff.lint]\nextend-select = ["BLE001", "S110"]\n'
+# The repository's own configuration. It ends inside [tool.ruff.lint], so a case can append keys to that table.
+CONFIG = (ROOT / "pyproject.toml").read_text()
 CODE = "x = 1\n"
 
 
@@ -142,6 +144,18 @@ PROBE_CASES = [
     ("root ruff.toml ignores S110",
      {"pyproject.toml": CONFIG, "ruff.toml": '[lint]\nextend-select = ["BLE001", "S110"]\nignore = ["S110"]\n'},
      "ruff no longer reports S110"),
+    ("ignore S112", {"pyproject.toml": CONFIG + 'ignore = ["S112"]\n'}, "ruff no longer reports S112"),
+    ("ignore G004", {"pyproject.toml": CONFIG + 'ignore = ["G004"]\n'}, "ruff no longer reports G004"),
+    ("ignore prefix LOG", {"pyproject.toml": CONFIG + 'extend-ignore = ["LOG"]\n'}, "ruff no longer reports LOG002"),
+    ("ignore G001", {"pyproject.toml": CONFIG + 'ignore = ["G001"]\n'}, "ruff no longer reports G001"),
+    ("ignore G003", {"pyproject.toml": CONFIG + 'ignore = ["G003"]\n'}, "ruff no longer reports G003"),
+    ("ignore LOG002", {"pyproject.toml": CONFIG + 'ignore = ["LOG002"]\n'}, "ruff no longer reports LOG002"),
+    ("ignore LOG015", {"pyproject.toml": CONFIG + 'ignore = ["LOG015"]\n'}, "ruff no longer reports LOG015"),
+    ("suppress no longer banned",
+     {"pyproject.toml": CONFIG.replace('"contextlib.suppress".msg', '"contextlib.nullcontext".msg')},
+     "ruff no longer bans contextlib.suppress"),
+    ("basicConfig no longer banned", {"pyproject.toml": CONFIG.replace('"logging.basicConfig"', '"logging.shutdown"')},
+     "ruff no longer bans logging.basicConfig"),
 ]
 
 
@@ -151,8 +165,10 @@ def test_probe(tmp_path, label, files, expect):
 
 
 def test_probe_fails_when_ruff_is_missing(tmp_path):
-    script = step_script(PROBE_STEP).replace("| ruff check", "| /nonexistent/ruff check")
-    check(tmp_path, script, {"pyproject.toml": CONFIG}, "ruff exited 127")
+    script = step_script(PROBE_STEP)
+    assert script.count("out=$(ruff check") == 1
+    check(tmp_path, script.replace("out=$(ruff check", "out=$(/nonexistent/ruff check"), {"pyproject.toml": CONFIG},
+          "ruff exited 127")
 
 
 COVERAGE_STEP = "ruff lints every tracked Python file"
@@ -204,12 +220,82 @@ CONFIG_CASES = [
      {"pyproject.toml": CONFIG + '[tool.ruff.lint.extend-per-file-ignores]\n"x.py" = ["E"]\n'},
      "extend-per-file-ignores: x.py: E"),
     ("no pyproject.toml", {"a.py": CODE}, "no pyproject.toml at the repository root"),
+    ("ignore a LOG code the probe does not test", {"pyproject.toml": CONFIG + 'ignore = ["LOG001"]\n'}, "ignore: LOG001"),
+    ("extend-ignore a G code the probe does not test", {"pyproject.toml": CONFIG + 'extend-ignore = ["G010"]\n'},
+     "extend-ignore: G010"),
+    ("ignore another rule", {"pyproject.toml": CONFIG + 'ignore = ["F401"]\n'}, None),
+    ("extend loads another settings file", {"pyproject.toml": '[tool.ruff]\nextend = "base.toml"\n' + CONFIG},
+     "extend: base.toml"),
+    ("select narrows the rules", {"pyproject.toml": CONFIG + 'select = ["E", "G004"]\n'}, "select: E"),
+    ("top-level select", {"pyproject.toml": '[tool.ruff]\nselect = ["G004"]\n' + CONFIG}, "select: G004"),
+    ("per-file ignore G", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["G"]\n'},
+     "per-file-ignores: pkg/*: G"),
+    ("per-file ignore LOG015", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["LOG015"]\n'},
+     "per-file-ignores: pkg/*: LOG015"),
+    ("per-file ignore TID251 and S112",
+     {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["TID251", "S112"]\n'},
+     "per-file-ignores: pkg/*: TID251"),
 ]
 
 
 @pytest.mark.parametrize("label,files,expect", CONFIG_CASES, ids=[c[0] for c in CONFIG_CASES])
 def test_config_location(tmp_path, label, files, expect):
     check(tmp_path, step_script(CONFIG_STEP), files, expect)
+
+
+# BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the two wrappers
+# (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which no ruff rule sees.
+HANDLER_STEP = "no broad handler outside the two wrappers, and no added log handlers"
+BROAD_FORMS = {
+    "re-raises": "def f():\n    try:\n        x = 1\n    except Exception:\n        raise\n",
+    "logs the exception": "def f(log):\n    try:\n        x = 1\n    except BaseException:\n        log.exception('x')\n",
+    "bare": "def f():\n    try:\n        x = 1\n    except:\n        raise\n",
+    "in a tuple": "def f():\n    try:\n        x = 1\n    except (ValueError, Exception):\n        raise\n",
+    "except star": "def f():\n    try:\n        x = 1\n    except* Exception:\n        raise\n",
+    "by module path": "import builtins\ndef f():\n    try:\n        x = 1\n    except builtins.Exception:\n        raise\n",
+    "at module level": "try:\n    x = 1\nexcept Exception:\n    raise\n",
+}
+HANDLER_CASES = [
+    ("clean", {"a.py": CODE}, None),
+    ("a named exception", {"a.py": "def f():\n    try:\n        x = 1\n    except ValueError:\n        raise\n"}, None),
+    ("a name that only contains Exception",
+     {"a.py": "def f():\n    try:\n        x = 1\n    except ExceptionGroup:\n        raise\n"}, None),
+]
+HANDLER_CASES += [(f"broad, {label}", {"pkg/a.py": body}, "broad handler outside the wrappers: pkg/a.py:")
+                  for label, body in BROAD_FORMS.items()]
+HANDLER_CASES += [
+    ("addHandler", {"a.py": "import logging\nlogging.getLogger(__name__).addHandler(logging.NullHandler())\n"},
+     "log handler added: a.py:2"),
+    ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
+    ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
+     "broad handler outside the wrappers: my mod.py:4 in f"),
+]
+
+
+@pytest.mark.parametrize("label,files,expect", HANDLER_CASES, ids=[c[0] for c in HANDLER_CASES])
+def test_handler_check(tmp_path, label, files, expect):
+    check(tmp_path, step_script(HANDLER_STEP), files, expect)
+
+
+def test_the_allow_list_admits_only_a_named_wrapper_by_its_qualified_name(tmp_path):
+    # The boundary wrapper wraps each function Hermes calls (ARCHITECTURE.md section 2), so it is a decorator
+    # whose inner function holds the handler; a method of the same name in a class is not the wrapper.
+    script = step_script(HANDLER_STEP)
+    assert "ALLOWED = set()" in script   # empty until the failure module's two wrappers exist (C2)
+    script = script.replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary.wrapped"}')
+    decorator = ("def boundary(fn):\n    def wrapped(*a):\n        try:\n            return fn(*a)\n"
+                 "        except BaseException:\n            raise\n    return wrapped\n")
+    check(tmp_path, script, {"pkg/failures.py": decorator}, None)
+    method = "class Other:\n    def boundary(self):\n        try:\n            x = 1\n        except Exception:\n            raise\n"
+    check(tmp_path / "method", script, {"pkg/failures.py": decorator + method},
+          "broad handler outside the wrappers: pkg/failures.py:12 in Other.boundary")
+    check(tmp_path / "elsewhere", script, {"pkg/other.py": decorator},   # the same name in another file is not it
+          "broad handler outside the wrappers: pkg/other.py:5 in boundary.wrapped")
+
+
+def test_the_handler_check_fails_when_git_is_missing(tmp_path):
+    script = step_script(HANDLER_STEP).replace('["git", "ls-files"', '["/nonexistent/git", "ls-files"')
+    check(tmp_path, script, {"a.py": CODE}, "/nonexistent/git")
 
 
 def test_config_location_fails_when_git_is_missing(tmp_path):

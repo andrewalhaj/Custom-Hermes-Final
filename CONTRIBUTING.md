@@ -332,9 +332,11 @@ Ruff is one part of the check. Its diagnostics include:
 - Some broad `Exception` or `BaseException` handlers (`BLE001`).[11]
 - `try`-`except`-`pass` on a catch-everything block (`S110`). By default it flags only `Exception`, `BaseException` and a bare `except:`.[13][14]
 - A bare `except:` (`E722`).
+- `try`-`except`-`continue` on a catch-everything block (`S112`), and `contextlib.suppress` (banned through `TID251`), which hides a failure without recording it, and which `BLE001` does not see even when it suppresses `Exception` (C2, F3).
+- Logging forms L1 rules out: `logging.basicConfig` (banned through `TID251`), calls on the root logger and `getLogger(__file__)` (`LOG`), and f-strings, `.format` or `+` in a log call instead of `%`-style arguments (`G`). Review catches `getLogger` with no name or with a literal name. The configuration step refuses any `select`, which would replace this selection, and an `ignore`, `extend-ignore` or per-file ignore of any of these rules or their codes. A `noqa` comment can still silence them, because the ban below covers only `BLE001`, `S110` and `E722` (#19); review catches that.
 - Any suppression of `BLE001`, `S110` or `E722`: a `noqa` comment, a `ruff: ignore`, `ruff: disable` or `ruff: file-ignore` comment, a file-level `ruff: noqa` or `flake8: noqa`, ruff configuration that turns a rule off, globally or per file, or that excludes files or lives outside the root `pyproject.toml` (separate CI steps, section 8.2).
 
-Before adding the first runtime code, add a CI check that rejects broad handlers outside the two named wrappers even when they log or re-raise. Prove the check fails for a handler of each form and permits the intended wrappers.
+`BLE001` skips a broad handler that re-raises or logs the exception, so a separate CI step reads every tracked Python file and rejects a handler for `Exception`, `BaseException` or nothing, alone or in a tuple, including `except*`, outside the two named wrappers, even when it logs or re-raises. The same step rejects `logger.addHandler(...)` (L1), which no ruff rule sees. Its list of wrappers is empty until the failure module exists; the pull request that adds the wrappers names them there by path, as `git ls-files` prints it from the repository root, and qualified name, such as `custom_build/failures.py:boundary.wrapped` for a decorator's inner function. Its tests prove it fails for a handler of each form and permits a named wrapper.
 
 The reviewer also inspects what passing CI cannot establish:
 
@@ -373,7 +375,8 @@ The bootstrap `tests` job checks the guide links, the allow-list and action pins
 
 | Guard | Rules | Where it lives | The failing case that proves it |
 |---|---|---|---|
-| Lint over the whole repository: ruff's default rules plus `BLE001` and `S110` | C1, C2 | `pyproject.toml`, the CI workflow | A pull request that adds `except Exception: pass` anywhere fails |
+| Lint over the whole repository: ruff's default rules plus `BLE001`, `S110`, `S112`, `G`, `LOG`, and `TID251` banning `logging.basicConfig` and `contextlib.suppress` | C1, C2, L1 | `pyproject.toml`, the CI workflow | A pull request that adds `except Exception: pass` or `logging.basicConfig()` anywhere fails |
+| Broad-handler check: no handler for `Exception`, `BaseException` or nothing outside the two wrappers, even one that logs or re-raises, and no `addHandler` call | C2, L1 | The CI workflow | A pull request that adds `except Exception: raise` outside the wrappers fails |
 | Suppression ban for `BLE001`, `S110`, `E722` | C2 | The CI workflow | A pull request that adds `# noqa: BLE001`, a bare `# noqa`, a file-level `# ruff: noqa`, a broad catch under any other suppression comment such as `# ruff: ignore[BLE001]`, ruff configuration that turns one of these rules off, an `exclude`, or a ruff configuration file outside the root `pyproject.toml`, fails |
 | Tests in CI | W3, final result | The CI workflow | A pull request with a failing test fails. Review verifies the preceding red run and commit. |
 | Actions pinned to a full commit SHA | 8.2 | The test suite | A step or a job in any workflow file whose `uses:` names a tag or a branch fails the build |
@@ -409,7 +412,11 @@ Lint selection in `pyproject.toml`. Use `extend-select`, which adds to ruff's de
 
 ```toml
 [tool.ruff.lint]
-extend-select = ["BLE001", "S110"]
+extend-select = ["BLE001", "S110", "S112", "G", "LOG", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"logging.basicConfig".msg = "L1: Hermes owns logging configuration"
+"contextlib.suppress".msg = "C2, F3: suppress hides a failure without recording it; catch by name and record it"
 ```
 
 - `ruff check .` covers every Python file in the repository, tests included. All ruff configuration lives in the root `pyproject.toml`: no `ruff.toml`, `.ruff.toml` or nested `pyproject.toml`, no `exclude` or `extend-exclude`, and no per-file ignores for these rules. With one configuration file, the probe step proves the rules are on for every file, and the coverage step proves every tracked Python file is linted, whatever would otherwise drop it (`include`, `.gitignore`, or ruff's default excludes such as `dist/`).
