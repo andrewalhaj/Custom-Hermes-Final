@@ -505,7 +505,11 @@ def test_the_review_runs_only_where_the_secret_can_be_read():
 
 
 def holds(condition, event):
-    """Evaluate the job's `if:`: clauses of `a == b` or `a != b` joined by `&&`, against a sample event."""
+    """Evaluate the job's `if:`: clauses of `a == b` or `a != b` joined by `&&`, against a sample event.
+
+    This is this file's reading of the expression, not GitHub's evaluator: GitHub compares strings without
+    regard to case, for one. It catches a dropped, flipped or re-joined clause, which a text match does not.
+    """
     def value(term):
         return term.strip("'") if term.startswith("'") else event[term]
     results = []
@@ -622,12 +626,13 @@ def test_the_issue_step_takes_the_body_from_the_environment():
     assert review_step("review the branch")["env"]["ISSUE"] == "${{ steps.issue.outputs.issue }}" and step["id"] == "issue"
 
 
-def run_review_step(tmp_path, exit_with, filler=0):
+def run_review_step(tmp_path, exit_with, filler=0, char="x"):
     """Run the review step's script with a stand-in for scripts/review.py that prints to both streams and exits."""
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "review.py").write_text(
         f"import sys\nprint('C3   fail   returns [] on a timeout')\nprint('```text a quoted fence')\n"
-        f"print('~' * 12)\nprint('::warning::a forged annotation')\nprint('x' * {filler})\nprint('the last line')\n"
+        f"print('~' * 12)\nprint('::warning::a forged annotation')\nsys.stdout.flush()\n"
+        f"sys.stdout.buffer.write(({char!r} * {filler} + chr(10)).encode('utf-8'))\nprint('the last line')\n"
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
@@ -635,7 +640,7 @@ def run_review_step(tmp_path, exit_with, filler=0):
                             env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
                                  "BRANCH": "feat/x", "ISSUE": "7", "GITHUB_STEP_SUMMARY": str(summary),
                                  "RUNNER_TEMP": str(tmp_path)})
-    return result.returncode, result.stdout + result.stderr, summary.read_text()
+    return result.returncode, result.stdout + result.stderr, summary.read_bytes().decode("utf-8")   # must be valid
 
 
 @pytest.mark.parametrize("exit_with", [3, 4, 1])   # fix first, an incomplete report, a crash
@@ -669,6 +674,30 @@ def test_a_report_too_big_for_the_summary_is_cut_there_and_whole_in_the_log(tmp_
     assert "the last line" in log and "C3   fail" in summary
     lines = summary.splitlines()
     assert set(lines[-1]) == {"~"} and lines[0] == lines[-1] + "text"   # still one closed block
+
+
+@pytest.mark.parametrize("char", ["é", "€", "𝄞"])   # two, three and four bytes: one of them is cut mid-character
+def test_a_cut_inside_a_character_leaves_a_valid_summary(tmp_path, char):
+    code, _, summary = run_review_step(tmp_path, 3, filler=600_000, char=char)   # run_review_step decodes it
+    assert code == 3 and "report cut here" in summary and len(summary.encode()) < 1_000_000
+
+
+def read_issue(tmp_path, gh_exit):
+    """Run the step that fetches the issue, with a stand-in `gh` that prints its arguments and exits."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*"\nexit {gh_exit}\n')
+    (bin_dir / "gh").chmod(0o755)
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("read the issue")["run"]],
+                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "ISSUE": "7", "RUNNER_TEMP": str(tmp_path)})
+    return result.returncode, (tmp_path / "issue.txt").read_text()
+
+
+def test_the_issue_step_writes_what_gh_prints_and_fails_when_gh_fails(tmp_path):
+    assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n")
+    (tmp_path / "failed").mkdir()
+    assert read_issue(tmp_path / "failed", 1)[0] == 1
 
 
 def test_the_review_job_cannot_hang_or_pile_up():
