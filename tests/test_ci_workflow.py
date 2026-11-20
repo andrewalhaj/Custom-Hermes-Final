@@ -718,17 +718,18 @@ def read_issue(tmp_path, gh_exit):
     shutil.copy(ROOT / "scripts" / "review.py", tmp_path / "scripts" / "review.py")
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("read the issue")["run"]],
                             check=False, capture_output=True, text=True, cwd=tmp_path,
-                            env={"PATH": f"{bin_dir}:/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
+                            env={"PATH": f"{bin_dir}:{pathlib.Path(shutil.which('python')).parent}:/usr/bin:/bin",
                                  "ISSUE": "7", "BRANCH": "feat/x", "RUNNER_TEMP": str(tmp_path)})
-    return result.returncode, (tmp_path / "issue.txt").read_text()
+    return result.returncode, (tmp_path / "issue.txt").read_text(), result.stderr
 
 
 def test_the_issue_step_writes_the_issue_with_its_comments_and_fails_when_gh_fails(tmp_path):
-    code, text = read_issue(tmp_path, 0)
+    code, text, _ = read_issue(tmp_path, 0)
     assert code == 0 and "the body" in text and "[comment 1 by a, NONE: a note only]" in text and "> a comment" in text
     # A fetch that fails must fail the step: an issue with an empty comments section reads as "none" (C3).
     (tmp_path / "failed").mkdir()
-    assert read_issue(tmp_path / "failed", 1)[0] != 0
+    code, _, errors = read_issue(tmp_path / "failed", 1)
+    assert code == 1 and "CalledProcessError" in errors   # the script's own crash on gh failing, not another cause
 
 
 def test_the_review_job_cannot_hang_or_pile_up():

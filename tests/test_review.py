@@ -139,10 +139,12 @@ class FakeRun:
                         ("claude", "-p"): review.json.dumps({"structured_output": report})}
         self.ran = []
         self.given = []   # what each command was handed on stdin
+        self.commands = []
 
     def __call__(self, command, **kwargs):
         self.ran.append(tuple(command[:2]))
         self.given.append(kwargs.get("input"))
+        self.commands.append(list(command))
         return review.subprocess.CompletedProcess(command, 0, stdout=self.answers[tuple(command[:2])])
 
 
@@ -254,4 +256,5 @@ def test_print_issue_prints_the_text_and_runs_nothing_else(monkeypatch, capsys):
     monkeypatch.setattr(review.subprocess, "run", fake)
     assert review.main(["feat/x", "7", "--print-issue"]) == 0
     assert fake.ran == [("gh", "issue")]   # no git, no claude: the branch need not be checked out
+    assert fake.commands[0] == ["gh", "issue", "view", "7", "--json", "title,body,comments"]
     assert capsys.readouterr().out == review.issue_text(ISSUE)
