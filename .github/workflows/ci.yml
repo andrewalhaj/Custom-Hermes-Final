@@ -91,6 +91,9 @@ jobs:
           logging.basicConfig()
           logging.info("x")
           logging.getLogger(__name__).warning(f"{_}")
+          logging.getLogger(__name__).warning("{}".format(_))
+          logging.getLogger(__name__).warning("a" + _)
+          logging.getLogger(__file__)
           with contextlib.suppress(ValueError):
               pass
           PY
@@ -101,7 +104,7 @@ jobs:
           # 1 = findings reported (expected); 0 = the rules are off; anything else = ruff failed or is missing
           [ "$rc" -eq 1 ] || { echo "probe: ruff exited $rc, expected 1 (findings reported)"; exit 1; }
           # ": CODE " is how ruff's concise output frames a finding, so a code quoted in a message does not count.
-          for code in BLE001 S110 E722 S112 G004 LOG015; do grep -qF ": $code " <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
+          for code in BLE001 S110 E722 S112 G001 G003 G004 LOG002 LOG015; do grep -qF ": $code " <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
           for api in logging.basicConfig contextlib.suppress; do
             grep -qF "\`$api\` is banned" <<< "$out" || { echo "ruff no longer bans $api"; exit 1; }
           done
@@ -112,7 +115,7 @@ jobs:
           # failure module's two wrappers (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which ruff does not see.
           python - <<'PY'
           import ast, subprocess, sys
-          ALLOWED = set()   # "path.py:function" of the two wrappers, once the failure module has them (C2)
+          ALLOWED = set()   # "path.py:qualified.name" of the two wrappers, once the failure module has them (C2)
           def broad(t):   # nothing (bare), Exception or BaseException, by any path, alone or in a tuple
               if isinstance(t, ast.Tuple):
                   return any(broad(e) for e in t.elts)
@@ -124,7 +127,8 @@ jobs:
                       bad.append(f"broad handler outside the wrappers: {path}:{child.lineno} in {func or 'module'}")
                   if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "addHandler":
                       bad.append(f"log handler added: {path}:{child.lineno}")
-                  walk(child, path, child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else func)
+                  named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func)
           for path in subprocess.run(["git", "ls-files", "*.py"], check=True, capture_output=True, text=True).stdout.split():
               walk(ast.parse(open(path, encoding="utf-8").read(), path), path, None)
           sys.exit("\n".join(bad) if bad else 0)
@@ -148,9 +152,9 @@ jobs:
           import os, subprocess, sys, tomllib
           if not os.path.exists("pyproject.toml"):
               sys.exit("no pyproject.toml at the repository root")
-          rules = ("BLE001", "S110", "E722")
-          def covers(code):   # a code or prefix that covers one of the rules, such as "E", "BLE" or "ALL"
-              return code == "ALL" or any(r.startswith(code) for r in rules)
+          rules = ("BLE001", "S110", "E722", "S112", "G", "LOG", "TID251")
+          def covers(code):   # a prefix of a rule ("E", "ALL"), or a code inside a selected family ("G004")
+              return code == "ALL" or any(r.startswith(code) or code.startswith(r) for r in rules)
           tracked = subprocess.run(["git", "ls-files", "*ruff.toml", "*pyproject.toml"],
                                    check=True, capture_output=True, text=True).stdout.split()
           bad = [f"ruff configuration outside the root pyproject.toml: {f}" for f in tracked if f != "pyproject.toml"]

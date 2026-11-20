@@ -158,7 +158,7 @@ PROBE_CASES = [
      "ruff no longer reports S110"),
     ("ignore S112", {"pyproject.toml": CONFIG + 'ignore = ["S112"]\n'}, "ruff no longer reports S112"),
     ("ignore G004", {"pyproject.toml": CONFIG + 'ignore = ["G004"]\n'}, "ruff no longer reports G004"),
-    ("ignore prefix LOG", {"pyproject.toml": CONFIG + 'extend-ignore = ["LOG"]\n'}, "ruff no longer reports LOG015"),
+    ("ignore prefix LOG", {"pyproject.toml": CONFIG + 'extend-ignore = ["LOG"]\n'}, "ruff no longer reports LOG002"),
     ("ignore G001", {"pyproject.toml": CONFIG + 'ignore = ["G001"]\n'}, "ruff no longer reports G001"),
     ("ignore G003", {"pyproject.toml": CONFIG + 'ignore = ["G003"]\n'}, "ruff no longer reports G003"),
     ("ignore LOG002", {"pyproject.toml": CONFIG + 'ignore = ["LOG002"]\n'}, "ruff no longer reports LOG002"),
