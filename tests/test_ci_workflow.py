@@ -303,6 +303,9 @@ HANDLER_CASES += [
     ("a name for a tuple of named exceptions", {"a.py": "E = (ValueError, KeyError)\n" + HANDLER.format(name="E")}, None),
     ("a subclass of Exception", {"a.py": "class Mine(Exception):\n    pass\n" + HANDLER.format(name="Mine")}, None),
     ("an alias never used in a handler", {"a.py": "E = Exception\nraise E('x')\n"}, None),
+    ("an annotation with no value", {"a.py": "E: type\n" + HANDLER.format(name="E")}, None),
+    ("a plain import, then a handler that is not a name",
+     {"a.py": "from builtins import Exception\nERRS = (ValueError,)\n" + HANDLER.format(name="ERRS[0]")}, None),
 ]
 
 
