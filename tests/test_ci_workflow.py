@@ -125,6 +125,9 @@ UNSUPPRESSED_CASES += [
                        "pkg/sub/b.py": "# ruff: file-ignore[BLE001]\n" + BROAD["BLE001"].format(line="")}, ": BLE001 "),
     ("ruff cannot read its configuration", {"pyproject.toml": "[tool.ruff.lint]\nselect = 1\n", "a.py": CODE},
      "ruff exited 2"),
+    # The ban is on the use, not only the import: inside Hermes `logging.config` is already loaded (#17).
+    ("logging.config used through a plain import",
+     {"pyproject.toml": CONFIG, "a.py": "import logging\n\nlogging.config.dictConfig({})\n"}, ": TID251 "),
 ]
 for rule, body in BROAD.items():
     UNSUPPRESSED_CASES += [(f"{rule} under {form}", {"pyproject.toml": CONFIG, "a.py": body.format(
