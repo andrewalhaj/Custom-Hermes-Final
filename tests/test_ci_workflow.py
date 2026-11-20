@@ -61,7 +61,7 @@ def test_workflow_runs_on_pull_requests_and_main():
     triggers = workflow[True] if True in workflow else workflow["on"]  # YAML 1.1 reads a bare `on` key as True
     assert triggers["pull_request"]["branches"] == ["main"]
     assert triggers["push"]["branches"] == ["main"]
-    assert list(workflow["jobs"]) == ["tests"]   # the job name is the status check to require (8.2)
+    assert list(workflow["jobs"]) == ["tests", "review"]   # `tests` is the status check to require (8.2)
     commands = [s.get("run", "") for s in steps()]
     assert "ruff check ." in commands
     assert "python -m pytest -q" in commands
@@ -442,3 +442,81 @@ def test_the_hook_refuses_when_gitleaks_is_missing(tmp_path):
 def test_the_hook_refuses_when_git_cannot_read_what_is_staged(tmp_path):
     code, output = run_hook(tmp_path, gitleaks_path())   # not a repository
     assert code != 0 and "reported an error" in output, output
+
+
+# The independent review in CI (CONTRIBUTING.md W6, issue #32): scripts/review.py on the pull request's branch,
+# on the Claude subscription. It is not a required check.
+
+REVIEW_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"
+ISSUE_STEP = "find the issue this pull request closes"
+
+
+def review_job():
+    return yaml.safe_load(WORKFLOW.read_text())["jobs"]["review"]
+
+
+def review_step(name):
+    matches = [s for s in review_job()["steps"] if s.get("name") == name]
+    assert len(matches) == 1, f"expected one review step named {name!r}"
+    assert matches[0].get("shell") == "bash"
+    return matches[0]
+
+
+def test_the_review_runs_only_where_the_secret_can_be_read():
+    condition = review_job()["if"]
+    assert "github.event_name == 'pull_request'" in condition
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in condition   # not a fork
+    assert "github.actor != 'dependabot[bot]'" in condition
+    assert " || " not in condition   # every condition must hold
+
+
+def test_the_review_job_can_only_read():
+    assert review_job()["permissions"] == {"contents": "read", "issues": "read", "pull-requests": "read"}
+
+
+def test_the_token_reaches_only_the_step_that_runs_the_review():
+    assert WORKFLOW.read_text().count(REVIEW_TOKEN) == 2   # the name and the secret, on one line
+    step = review_step("review the branch")
+    assert step["env"][REVIEW_TOKEN] == "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
+    assert step["run"].strip() == 'python scripts/review.py "$BRANCH" "$ISSUE" | tee "$GITHUB_STEP_SUMMARY"'
+    assert step["env"]["BRANCH"] == "${{ github.event.pull_request.head.ref }}"   # in env, never in the script
+    assert "${{" not in step["run"]
+
+
+def test_the_review_checks_out_the_branch_with_its_history_and_a_pinned_claude_code():
+    job = review_job()
+    checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout"))
+    assert checkout["with"] == {"ref": "${{ github.event.pull_request.head.ref }}", "fetch-depth": 0}
+    commands = [s.get("run", "") for s in job["steps"]]
+    assert "npm install --global @anthropic-ai/claude-code@2.1.322" in commands
+
+
+def find_issue(tmp_path, body):
+    output = tmp_path / "output"
+    output.write_text("")
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step(ISSUE_STEP)["run"]],
+                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
+                                 "BODY": body, "GITHUB_OUTPUT": str(output)})
+    return result.returncode, result.stdout + result.stderr, output.read_text()
+
+
+@pytest.mark.parametrize("body,issue", [("Closes #12\n\nText.", "12"), ("Intro.\ncloses #7\n", "7"),
+                                        ("Closes #3\nCloses #4\n", "3")])
+def test_the_issue_is_read_from_the_closes_line(tmp_path, body, issue):
+    code, output, written = find_issue(tmp_path, body)
+    assert code == 0, output
+    assert written == f"issue={issue}\n"
+
+
+@pytest.mark.parametrize("body", ["", "No issue here.", "This mentions Closes #5 mid-line.", "Closes #x"])
+def test_a_body_without_a_closes_line_fails_the_job(tmp_path, body):
+    code, output, written = find_issue(tmp_path, body)
+    assert code != 0 and "no 'Closes #<n>' line" in output
+    assert written == ""
+
+
+def test_the_issue_step_takes_the_body_from_the_environment():
+    step = review_step(ISSUE_STEP)
+    assert step["env"] == {"BODY": "${{ github.event.pull_request.body }}"} and "${{" not in step["run"]
+    assert review_step("review the branch")["env"]["ISSUE"] == "${{ steps.issue.outputs.issue }}" and step["id"] == "issue"
