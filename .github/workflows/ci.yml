@@ -129,7 +129,7 @@ jobs:
                       bad.append(f"log handler added: {path}:{child.lineno}")
                   named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                   walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func)
-          for path in subprocess.run(["git", "ls-files", "*.py"], check=True, capture_output=True, text=True).stdout.split():
+          for path in subprocess.run(["git", "ls-files", "-z", "*.py"], check=True, capture_output=True, text=True).stdout.split("\0")[:-1]:
               walk(ast.parse(open(path, encoding="utf-8").read(), path), path, None)
           sys.exit("\n".join(bad) if bad else 0)
           PY
@@ -162,6 +162,8 @@ jobs:
           for section in (ruff, ruff.get("lint", {})):
               for key in ("exclude", "extend-exclude"):
                   bad += [f"{key}: {pattern}" for pattern in section.get(key, [])]
+              for key in ("ignore", "extend-ignore"):
+                  bad += [f"{key}: {c}" for c in section.get(key, []) if covers(c)]
               for key in ("per-file-ignores", "extend-per-file-ignores"):
                   bad += [f"{key}: {glob}: {c}" for glob, codes in section.get(key, {}).items() for c in codes if covers(c)]
           sys.exit("\n".join(bad) if bad else 0)
