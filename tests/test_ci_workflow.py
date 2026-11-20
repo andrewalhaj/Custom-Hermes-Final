@@ -10,15 +10,29 @@ Needs `git`, `ruff`, `gitleaks` and `python` on PATH, as the CI job has them.
 import pathlib
 import shutil
 import subprocess
+import tomllib
 
 import pytest
 import yaml
 
-WORKFLOW = pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yml"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 NOQA = "no" + "qa"  # kept apart so the noqa ban does not match this file
-CONFIG = '[tool.ruff.lint]\nextend-select = ["BLE001", "S110"]\n'
+# The repository's lint configuration, banned-api table first, so a case can append keys to [tool.ruff.lint].
+CONFIG = """[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"logging.basicConfig".msg = "L1: Hermes owns logging configuration"
+"contextlib.suppress".msg = "C2: a catch-everything handler BLE001 does not see"
+
+[tool.ruff.lint]
+extend-select = ["BLE001", "S110", "S112", "G", "LOG", "TID251"]
+"""
 CODE = "x = 1\n"
+
+
+def test_the_cases_lint_with_the_repository_configuration():
+    repo = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["ruff"]
+    assert tomllib.loads(CONFIG)["tool"]["ruff"] == repo
 
 
 def steps():
@@ -142,6 +156,14 @@ PROBE_CASES = [
     ("root ruff.toml ignores S110",
      {"pyproject.toml": CONFIG, "ruff.toml": '[lint]\nextend-select = ["BLE001", "S110"]\nignore = ["S110"]\n'},
      "ruff no longer reports S110"),
+    ("ignore S112", {"pyproject.toml": CONFIG + 'ignore = ["S112"]\n'}, "ruff no longer reports S112"),
+    ("ignore G004", {"pyproject.toml": CONFIG + 'ignore = ["G004"]\n'}, "ruff no longer reports G004"),
+    ("ignore prefix LOG", {"pyproject.toml": CONFIG + 'extend-ignore = ["LOG"]\n'}, "ruff no longer reports LOG015"),
+    ("suppress no longer banned",
+     {"pyproject.toml": CONFIG.replace('"contextlib.suppress".msg', '"contextlib.nullcontext".msg')},
+     "ruff no longer bans contextlib.suppress"),
+    ("basicConfig no longer banned", {"pyproject.toml": CONFIG.replace('"logging.basicConfig"', '"logging.shutdown"')},
+     "ruff no longer bans logging.basicConfig"),
 ]
 
 
@@ -210,6 +232,52 @@ CONFIG_CASES = [
 @pytest.mark.parametrize("label,files,expect", CONFIG_CASES, ids=[c[0] for c in CONFIG_CASES])
 def test_config_location(tmp_path, label, files, expect):
     check(tmp_path, step_script(CONFIG_STEP), files, expect)
+
+
+# BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the two wrappers
+# (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which no ruff rule sees.
+HANDLER_STEP = "no broad handler outside the two wrappers, and no added log handlers"
+BROAD_FORMS = {
+    "re-raises": "def f():\n    try:\n        x = 1\n    except Exception:\n        raise\n",
+    "logs the exception": "def f(log):\n    try:\n        x = 1\n    except BaseException:\n        log.exception('x')\n",
+    "bare": "def f():\n    try:\n        x = 1\n    except:\n        raise\n",
+    "in a tuple": "def f():\n    try:\n        x = 1\n    except (ValueError, Exception):\n        raise\n",
+    "except star": "def f():\n    try:\n        x = 1\n    except* Exception:\n        raise\n",
+    "by module path": "import builtins\ndef f():\n    try:\n        x = 1\n    except builtins.Exception:\n        raise\n",
+    "at module level": "try:\n    x = 1\nexcept Exception:\n    raise\n",
+}
+HANDLER_CASES = [
+    ("clean", {"a.py": CODE}, None),
+    ("a named exception", {"a.py": "def f():\n    try:\n        x = 1\n    except ValueError:\n        raise\n"}, None),
+    ("a handler named Exception elsewhere", {"a.py": "class Exception2(Exception):\n    pass\n"}, None),
+]
+HANDLER_CASES += [(f"broad, {label}", {"pkg/a.py": body}, "broad handler outside the wrappers: pkg/a.py:")
+                  for label, body in BROAD_FORMS.items()]
+HANDLER_CASES += [
+    ("addHandler", {"a.py": "import logging\nlogging.getLogger(__name__).addHandler(logging.NullHandler())\n"},
+     "log handler added: a.py:2"),
+    ("not Python", {"a.py": "def f(:\n"}, "SyntaxError"),
+]
+
+
+@pytest.mark.parametrize("label,files,expect", HANDLER_CASES, ids=[c[0] for c in HANDLER_CASES])
+def test_handler_check(tmp_path, label, files, expect):
+    check(tmp_path, step_script(HANDLER_STEP), files, expect)
+
+
+def test_the_handler_check_admits_only_the_named_wrappers(tmp_path):
+    script = step_script(HANDLER_STEP)
+    assert "ALLOWED = set()" in script   # empty until the failure module's two wrappers exist (C2)
+    script = script.replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary"}')
+    body = ("def boundary():\n    try:\n        x = 1\n    except Exception:\n        raise\n"
+            "def other():\n    try:\n        x = 1\n    except Exception:\n        raise\n")
+    check(tmp_path, script, {"pkg/failures.py": body}, "broad handler outside the wrappers: pkg/failures.py:9 in other")
+    check(tmp_path / "only", script, {"pkg/failures.py": body.split("def other")[0]}, None)
+
+
+def test_the_handler_check_fails_when_git_is_missing(tmp_path):
+    script = step_script(HANDLER_STEP).replace('["git", "ls-files"', '["/nonexistent/git", "ls-files"')
+    check(tmp_path, script, {"a.py": CODE}, "/nonexistent/git")
 
 
 def test_config_location_fails_when_git_is_missing(tmp_path):
