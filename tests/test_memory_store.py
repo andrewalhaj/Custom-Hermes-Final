@@ -4,14 +4,42 @@ Each refusal is the failing case of CONTRIBUTING.md section 8's "Separate databa
 machine's role, deleting a row or altering a table is refused.
 """
 
+import os
 import pathlib
 import re
 
 import psycopg
 import pytest
-from conftest import AGENT, MIGRATIONS
+from conftest import AGENT, MIGRATIONS, refuse_existing_roles
 
 TABLES = ("facts", "events", "schema_level")
+
+
+def test_the_fixture_refuses_a_server_that_already_has_the_roles():
+    # Roles are server-wide: a server that already has them is not a throwaway one, and its roles are not ours
+    # to drop (C7).
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        pytest.fail("TEST_DATABASE_URL is not set: these tests need a Postgres 17 superuser connection")
+    with psycopg.connect(url, autocommit=True) as admin:
+        admin.execute("create role memory_agent nologin")
+        try:
+            with pytest.raises(pytest.fail.Exception, match="memory_agent"):
+                refuse_existing_roles(admin)
+        finally:
+            admin.execute("drop role memory_agent")
+
+
+def test_row_level_security_hides_rows_the_role_has_no_policy_for(db):
+    # A grant without a policy must still reach no rows, so a later migration's stray grant changes nothing.
+    with psycopg.connect(db["agent"]) as conn:
+        fact = add_fact(conn)
+    with psycopg.connect(db["owner"]) as conn:
+        conn.execute("grant delete on memory.facts to memory_agent")
+    with psycopg.connect(db["agent"]) as conn:
+        assert conn.execute("delete from memory.facts").rowcount == 0
+    with psycopg.connect(db["agent"]) as conn:
+        assert conn.execute("select count(*) from memory.facts where id = %s", (fact,)).fetchone() == (1,)
 
 
 def add_fact(conn, body="The disposable store is Postgres 17."):
