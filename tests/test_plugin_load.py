@@ -3,7 +3,8 @@
 Each case copies the plugin into a throwaway Hermes home and runs Hermes v0.23.1's ordinary discovery, or
 `hermes plugins doctor --ci`, in a process of its own, because Hermes keeps its plugin registry per process.
 Needs Hermes importable from the interpreter that runs the tests. The memory-provider loader is not run
-yet: the plugin has no provider.
+yet: the plugin has no provider. For the same reason nothing here proves `kind: standalone`: Hermes
+reads a plugin without that line as standalone unless its code defines a memory provider.
 """
 
 import json
@@ -36,12 +37,10 @@ def hermes(tmp_path, home, *args):
                           timeout=120, check=False)
 
 
-def load(tmp_path, manifest_edit=None):
+def load(tmp_path):
     """Hermes's entry for the plugin after ordinary discovery, with the plugin enabled in a throwaway home."""
     home = tmp_path / "home"
-    manifest = copy_plugin(home / "plugins" / "custom_build") / "plugin.yaml"
-    if manifest_edit:
-        manifest.write_text(manifest_edit(manifest.read_text(encoding="utf-8")), encoding="utf-8")
+    copy_plugin(home / "plugins" / "custom_build")
     (home / "config.yaml").write_text("plugins:\n  enabled:\n    - custom_build\n", encoding="utf-8")
     result = hermes(tmp_path, home, SCENARIO)
     assert result.returncode == 0, result.stderr[-2000:]
@@ -62,14 +61,6 @@ def doctor(tmp_path, plugin_dir):
 def test_ordinary_load_succeeds(tmp_path):
     entry = load(tmp_path)
     assert ordinary_load_ok(entry), entry
-
-
-def test_a_manifest_without_kind_standalone_fails_the_load_check(tmp_path):
-    def drop_kind(text):
-        assert "kind: standalone\n" in text
-        return text.replace("kind: standalone\n", "")
-
-    assert not ordinary_load_ok(load(tmp_path, manifest_edit=drop_kind))
 
 
 def test_doctor_passes_the_plugin(tmp_path):
