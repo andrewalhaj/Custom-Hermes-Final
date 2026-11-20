@@ -172,6 +172,9 @@ PROBE_CASES = [
      "ruff no longer bans logging.basicConfig"),
     ("logging.config no longer banned", {"pyproject.toml": CONFIG.replace('"logging.config"', '"logging.handlers"')},
      "ruff no longer bans logging.config"),
+    ("QueueListener no longer banned",
+     {"pyproject.toml": CONFIG.replace('"logging.handlers.QueueListener"', '"logging.handlers.SocketHandler"')},
+     "ruff no longer bans logging.handlers.QueueListener"),
 ]
 
 
@@ -292,6 +295,15 @@ HANDLER_CASES += [
     ("handlers added to in place", {"a.py": "def f(log, h):\n    log.handlers += [h]\n"}, "log handler added: a.py:2"),
     ("handlers assigned with an annotation", {"a.py": "def f(log, h):\n    log.handlers: list = [h]\n"},
      "log handler added: a.py:2"),
+    # Rarer ways to install a handler (#40).
+    ("the last-resort handler replaced", {"a.py": "import logging\nlogging.lastResort = logging.NullHandler()\n"},
+     "log handler added: a.py:2"),
+    ("logging.config imported by name",
+     {"a.py": "import importlib\nimportlib.import_module('logging.config').dictConfig({})\n"}, "log handler added: a.py:2"),
+    ("logging.config imported by __import__", {"a.py": "__import__('logging.config')\n"}, "log handler added: a.py:1"),
+    ("another module imported by name", {"a.py": "import importlib\nimportlib.import_module('json')\n"}, None),
+    ("a module name not known until run time", {"a.py": "import importlib\ndef f(n):\n    return importlib.import_module(n)\n"}, None),
+    ("the last-resort handler only read", {"a.py": "import logging\nx = logging.lastResort\n"}, None),
     ("handlers only read", {"a.py": "def f(log):\n    return len(log.handlers), list(log.handlers)\n"}, None),
     ("another list appended to", {"a.py": "def f(items, x):\n    items.append(x)\n    items.rows.append(x)\n"}, None),
     ("a file name with a space", {"my mod.py": BROAD_FORMS["re-raises"]},
