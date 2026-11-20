@@ -77,6 +77,7 @@ jobs:
           import contextlib
           import logging
           import logging.config
+          import logging.handlers
           try:
               pass
           except Exception:
@@ -91,6 +92,7 @@ jobs:
               except Exception:
                   continue
           logging.basicConfig()
+          logging.handlers.QueueListener(None)
           logging.info("x")
           logging.getLogger(__name__).warning(f"{_}")
           logging.getLogger(__name__).warning("{}".format(_))
@@ -107,7 +109,7 @@ jobs:
           [ "$rc" -eq 1 ] || { echo "probe: ruff exited $rc, expected 1 (findings reported)"; exit 1; }
           # ": CODE " is how ruff's concise output frames a finding, so a code quoted in a message does not count.
           for code in BLE001 S110 E722 S112 G001 G003 G004 LOG002 LOG015; do grep -qF ": $code " <<< "$out" || { echo "ruff no longer reports $code"; exit 1; }; done
-          for api in logging.basicConfig logging.config contextlib.suppress; do
+          for api in logging.basicConfig logging.config logging.handlers.QueueListener contextlib.suppress; do
             grep -qF "\`$api\` is banned" <<< "$out" || { echo "ruff no longer bans $api"; exit 1; }
           done
       - name: no broad handler outside the two wrappers, and no added log handlers
@@ -115,7 +117,8 @@ jobs:
         run: |
           # BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the
           # failure module's two wrappers (CONTRIBUTING.md 5.4), under any name the file gives those classes. L1
-          # bans adding log handlers: addHandler, or a change to any `.handlers` list, which ruff does not see.
+          # bans adding log handlers: addHandler, a change to any `.handlers` list, an assignment to `lastResort`,
+          # or `logging.config` imported by name, none of which ruff sees.
           python - <<'PY'
           import ast, subprocess, sys
           ALLOWED = set()   # "path.py:qualified.name" of the two wrappers, once the failure module has them (C2)
@@ -147,10 +150,15 @@ jobs:
                           child.func.attr == "addHandler"
                           or child.func.attr in ("append", "extend", "insert") and getattr(child.func.value, "attr", None) == "handlers"):
                       bad.append(f"log handler added: {path}:{child.lineno}")
-                  # or put straight into a logger's list: `x.handlers = ...`, `x.handlers += ...`
+                  # or put straight into a logger's list, or in place of the last-resort handler:
+                  # `x.handlers = ...`, `x.handlers += ...`, `logging.lastResort = ...`
                   targets = child.targets if isinstance(child, ast.Assign) else [getattr(child, "target", None)]
-                  if isinstance(child, (ast.Assign, ast.AugAssign, ast.AnnAssign)) and any(getattr(t, "attr", None) == "handlers" for t in targets):
+                  if isinstance(child, (ast.Assign, ast.AugAssign, ast.AnnAssign)) and any(getattr(t, "attr", None) in ("handlers", "lastResort") for t in targets):
                       bad.append(f"log handler added: {path}:{child.lineno}")
+                  # or logging.config imported by name, which the lint's ban on it cannot see
+                  if (isinstance(child, ast.Call) and getattr(child.func, "attr", getattr(child.func, "id", None)) in ("import_module", "__import__")
+                          and child.args and isinstance(child.args[0], ast.Constant) and str(child.args[0].value).startswith("logging.config")):
+                      bad.append(f"logging.config imported by name: {path}:{child.lineno}")
                   named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                   walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func, names)
           for path in subprocess.run(["git", "ls-files", "-z", "*.py"], check=True, capture_output=True, text=True).stdout.split("\0")[:-1]:
