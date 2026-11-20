@@ -189,3 +189,12 @@ def test_without_an_issue_file_the_issue_comes_from_gh(monkeypatch):
     fake = FakeRun(report=report())
     assert run_main(monkeypatch, fake) == 0
     assert ("gh", "issue") in fake.ran and "the issue\n" in fake.given[-1]
+
+
+def test_operations_names_every_flag_the_script_relies_on():
+    # Nothing proposes a newer Claude Code, so a hand bump checks these against the new version (#33).
+    guide = (ROOT / "OPERATIONS.md").read_text(encoding="utf-8")
+    (operations,) = [line for line in guide.splitlines() if line.startswith("- Claude Code")]   # that entry only
+    flags = [part for part in review.command(ITEMS) if part.startswith("-")]
+    assert flags and [flag for flag in flags if f"`{flag}`" not in operations] == []
+    assert "`structured_output`" in operations and "@anthropic-ai/claude-code" in operations

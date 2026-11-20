@@ -42,8 +42,8 @@ before relying on them with another version.
 
 ## Code rules (CONTRIBUTING.md 5.1, 6, 7)
 - C1 Catch the error you expect, by name; the `try` covers only the line that raises it.
-- C2 No `except Exception`, `except BaseException` or bare `except:`; never suppress BLE001, S110, E722, S112,
-  TID251 or any G or LOG code.
+- C2 No `except Exception`, `except BaseException` or bare `except:`; never suppress BLE001, S110, E722, S112
+  or TID251.
   Only the two wrappers in the failure module catch everything.
 - C3 A failure never looks like an empty result. A missing setting is a startup error.
 - C4 Let it crash; add handling only when the issue asks, and still record the failure.
@@ -56,8 +56,9 @@ before relying on them with another version.
 - F1 to F6: every failure has a code from the catalog; failed, empty and degraded differ; each is logged at
   WARNING or above and written to `events` through the one helper; a failure that changed the answer shows in
   the turn; the catalog is enforced by a test.
-- L1 to L5: `logging.getLogger(__name__)` only; events through the one helper; redact before every write;
-  no content in logs. Use sanitized exception diagnostics and keep event-write failures visible locally.
+- L1 to L5: `logging.getLogger(__name__)` only, and never suppress a G or LOG code or TID251; events through
+  the one helper; redact before every write; no content in logs. Use sanitized exception diagnostics and keep
+  event-write failures visible locally.
 
 ## About this file
 Hermes loads the first of `.hermes.md`, `HERMES.md`, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md` and
