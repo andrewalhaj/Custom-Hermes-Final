@@ -98,6 +98,8 @@ HIDDEN = [
     ".github/workflows/token.txt",
     ".githooks/.env",
     ".githooks/notes.md",
+    "scripts/.env",
+    "scripts/notes.md",
 ]
 VISIBLE = [
     ".gitignore",
@@ -111,6 +113,7 @@ VISIBLE = [
     ".github/workflows/new.yml",
     ".githooks/pre-commit",
     "tests/test_new.py",
+    "scripts/review.py",
 ]
 
 
