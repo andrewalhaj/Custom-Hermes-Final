@@ -256,7 +256,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}   # read-only; kept out of the step that runs the reviewer
           ISSUE: ${{ steps.issue.outputs.issue }}
-        run: gh issue view "$ISSUE" > "$RUNNER_TEMP/issue.txt"
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        # The script writes the issue with its comments, as a local run does: each comment under a header taken
+        # from GitHub's record of who wrote it, and every line of its text quoted.
+        run: python scripts/review.py "$BRANCH" "$ISSUE" --print-issue > "$RUNNER_TEMP/issue.txt"
       - name: review the branch
         shell: bash
         env:
