@@ -295,6 +295,7 @@ ALIAS_FORMS = {
     "an import under another name": "from builtins import Exception as E\n" + HANDLER.format(name="E"),
     "an assignment inside the function": "def f():\n    E = Exception\n    try:\n        x = 1\n    except E:\n        raise\n",
     "a walrus": "if (E := Exception):\n    pass\n" + HANDLER.format(name="E"),
+    "a chain through an import": "E = Exception\nfrom m import E as F\n" + HANDLER.format(name="F"),   # (#37)
 }
 HANDLER_CASES += [(f"alias, {label}", {"pkg/a.py": body}, "broad handler outside the wrappers: pkg/a.py:")
                   for label, body in ALIAS_FORMS.items()]
@@ -304,6 +305,9 @@ HANDLER_CASES += [
     ("a subclass of Exception", {"a.py": "class Mine(Exception):\n    pass\n" + HANDLER.format(name="Mine")}, None),
     ("an alias never used in a handler", {"a.py": "E = Exception\nraise E('x')\n"}, None),
     ("an annotation with no value", {"a.py": "E: type\n" + HANDLER.format(name="E")}, None),
+    # A target that is not a plain name is not followed, and must not crash the check (#37).
+    ("an attribute given Exception", {"a.py": "class C:\n    def m(self):\n        self.E = Exception\n"
+                                      + HANDLER.format(name="ValueError")}, None),
     ("a plain import, then a handler that is not a name",
      {"a.py": "from builtins import Exception\nERRS = (ValueError,)\n" + HANDLER.format(name="ERRS[0]")}, None),
 ]
