@@ -159,6 +159,9 @@ PROBE_CASES = [
     ("ignore S112", {"pyproject.toml": CONFIG + 'ignore = ["S112"]\n'}, "ruff no longer reports S112"),
     ("ignore G004", {"pyproject.toml": CONFIG + 'ignore = ["G004"]\n'}, "ruff no longer reports G004"),
     ("ignore prefix LOG", {"pyproject.toml": CONFIG + 'extend-ignore = ["LOG"]\n'}, "ruff no longer reports LOG015"),
+    ("ignore G001", {"pyproject.toml": CONFIG + 'ignore = ["G001"]\n'}, "ruff no longer reports G001"),
+    ("ignore G003", {"pyproject.toml": CONFIG + 'ignore = ["G003"]\n'}, "ruff no longer reports G003"),
+    ("ignore LOG002", {"pyproject.toml": CONFIG + 'ignore = ["LOG002"]\n'}, "ruff no longer reports LOG002"),
     ("suppress no longer banned",
      {"pyproject.toml": CONFIG.replace('"contextlib.suppress".msg', '"contextlib.nullcontext".msg')},
      "ruff no longer bans contextlib.suppress"),
@@ -228,6 +231,13 @@ CONFIG_CASES = [
      {"pyproject.toml": CONFIG + '[tool.ruff.lint.extend-per-file-ignores]\n"x.py" = ["E"]\n'},
      "extend-per-file-ignores: x.py: E"),
     ("no pyproject.toml", {"a.py": CODE}, "no pyproject.toml at the repository root"),
+    ("per-file ignore G", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["G"]\n'},
+     "per-file-ignores: pkg/*: G"),
+    ("per-file ignore LOG015", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["LOG015"]\n'},
+     "per-file-ignores: pkg/*: LOG015"),
+    ("per-file ignore TID251 and S112",
+     {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["TID251", "S112"]\n'},
+     "per-file-ignores: pkg/*: TID251"),
 ]
 
 
@@ -275,6 +285,18 @@ def test_the_handler_check_admits_only_the_named_wrappers(tmp_path):
             "def other():\n    try:\n        x = 1\n    except Exception:\n        raise\n")
     check(tmp_path, script, {"pkg/failures.py": body}, "broad handler outside the wrappers: pkg/failures.py:9 in other")
     check(tmp_path / "only", script, {"pkg/failures.py": body.split("def other")[0]}, None)
+
+
+def test_the_allow_list_names_a_decorator_wrapper_by_its_qualified_name(tmp_path):
+    # The boundary wrapper wraps each function Hermes calls (ARCHITECTURE.md section 2), so it is a decorator
+    # whose inner function holds the handler; a method of the same name in a class is not the wrapper.
+    script = step_script(HANDLER_STEP).replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary.wrapped"}')
+    decorator = ("def boundary(fn):\n    def wrapped(*a):\n        try:\n            return fn(*a)\n"
+                 "        except BaseException:\n            raise\n    return wrapped\n")
+    check(tmp_path, script, {"pkg/failures.py": decorator}, None)
+    method = "class Other:\n    def boundary(self):\n        try:\n            x = 1\n        except Exception:\n            raise\n"
+    check(tmp_path / "method", script, {"pkg/failures.py": decorator + method},
+          "broad handler outside the wrappers: pkg/failures.py:12 in Other.boundary")
 
 
 def test_the_handler_check_fails_when_git_is_missing(tmp_path):
