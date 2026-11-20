@@ -105,6 +105,30 @@ jobs:
           for api in logging.basicConfig contextlib.suppress; do
             grep -qF "\`$api\` is banned" <<< "$out" || { echo "ruff no longer bans $api"; exit 1; }
           done
+      - name: no broad handler outside the two wrappers, and no added log handlers
+        shell: bash
+        run: |
+          # BLE001 skips a broad handler that re-raises or logs the exception; C2 bans those too outside the
+          # failure module's two wrappers (CONTRIBUTING.md 5.4). L1 bans adding log handlers, which ruff does not see.
+          python - <<'PY'
+          import ast, subprocess, sys
+          ALLOWED = set()   # "path.py:function" of the two wrappers, once the failure module has them (C2)
+          def broad(t):   # nothing (bare), Exception or BaseException, by any path, alone or in a tuple
+              if isinstance(t, ast.Tuple):
+                  return any(broad(e) for e in t.elts)
+              return t is None or (t.attr if isinstance(t, ast.Attribute) else getattr(t, "id", None)) in ("Exception", "BaseException")
+          bad = []
+          def walk(node, path, func):
+              for child in ast.iter_child_nodes(node):
+                  if isinstance(child, ast.ExceptHandler) and broad(child.type) and f"{path}:{func}" not in ALLOWED:
+                      bad.append(f"broad handler outside the wrappers: {path}:{child.lineno} in {func or 'module'}")
+                  if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and child.func.attr == "addHandler":
+                      bad.append(f"log handler added: {path}:{child.lineno}")
+                  walk(child, path, child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else func)
+          for path in subprocess.run(["git", "ls-files", "*.py"], check=True, capture_output=True, text=True).stdout.split():
+              walk(ast.parse(open(path, encoding="utf-8").read(), path), path, None)
+          sys.exit("\n".join(bad) if bad else 0)
+          PY
       - name: ruff lints every tracked Python file
         shell: bash
         run: |
