@@ -159,6 +159,7 @@ jobs:
                                    check=True, capture_output=True, text=True).stdout.split()
           bad = [f"ruff configuration outside the root pyproject.toml: {f}" for f in tracked if f != "pyproject.toml"]
           ruff = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("ruff", {})
+          bad += [f"extend: {ruff['extend']}"] if "extend" in ruff else []   # a second settings file the checks below never read
           for section in (ruff, ruff.get("lint", {})):
               for key in ("exclude", "extend-exclude"):
                   bad += [f"{key}: {pattern}" for pattern in section.get(key, [])]
