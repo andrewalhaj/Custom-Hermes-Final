@@ -4,8 +4,9 @@
 
 A separate, read-only `claude -p` reviews the branch against origin/main and must answer,
 with evidence, for every C, F and L rule in CONTRIBUTING.md and one item each for sections 8 and 9. The
-diff, the commits and the issue are gathered here and handed over, so the reviewer needs no shell. The
-checklist is read from the guide each run, so a new rule is asked about without a change here.
+diff, the commits and the issue are gathered here, or the issue by the caller, and handed over, so the
+reviewer needs no shell. The checklist is read from the guide each run, so a new rule is asked about
+without a change here.
 
 Exit 0: every item answered, none failed, verdict ship. Exit 3: a rule failed or the verdict is fix_first. Exit 4: the report is not a complete review.
 Anything else that goes wrong (no `claude`, no login, no structured output) crashes with a traceback and
