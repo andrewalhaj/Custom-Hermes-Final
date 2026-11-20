@@ -48,9 +48,10 @@ jobs:
       - name: no noqa that can silence the error-handling rules
         shell: bash
         run: |
-          # Matches a bare noqa, a noqa naming one of these rules, and file-level ruff/flake8 noqa, in any case.
+          # Matches a bare noqa, a noqa naming one of the protected rules (C2: BLE001, S110, E722, S112, TID251;
+          # L1: any G or LOG code, TID251), and file-level ruff/flake8 noqa, in any case.
           set +e
-          git grep -n -i -E '#[[:space:]]*noqa([[:space:]]*$|[[:space:]]*[^:[:space:]]|:[^#]*(BLE001|S110|E722))|(ruff|flake8):[[:space:]]*noqa' -- '*.py'
+          git grep -n -i -E '#[[:space:]]*noqa([[:space:]]*$|[[:space:]]*[^:[:space:]]|:([^#]*[^[:alnum:]#])?(BLE001|S110|E722|S112|TID251|G[0-9]+|LOG[0-9]+)([^[:alnum:]]|$))|(ruff|flake8):[[:space:]]*noqa' -- '*.py'
           rc=$?
           set -e
           # 1 = no match (pass); 0 = the matches printed above; anything else = git failed
@@ -60,7 +61,7 @@ jobs:
         run: |
           # The pattern above knows only the comment forms it lists. This asks ruff itself, whatever the form.
           set +e
-          out=$(ruff check --no-cache --ignore-noqa --select BLE001,S110,E722 --output-format concise .)
+          out=$(ruff check --no-cache --ignore-noqa --select BLE001,S110,E722,S112,G,LOG,TID251 --output-format concise .)
           rc=$?
           set -e
           echo "$out"

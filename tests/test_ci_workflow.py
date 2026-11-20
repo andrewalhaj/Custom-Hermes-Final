@@ -112,7 +112,7 @@ BROAD = {"BLE001": "try:\n    x = 1\nexcept Exception:{line}\n    x = 2\n",
          "S110": "try:\n    x = 1\nexcept Exception:{line}\n    pass{line}\n",
          "E722": "try:\n    x = 1\nexcept:{line}\n    x = 2\n",
          # the rules #16 added (C2, L1); a comment must not silence them either (#19)
-         "S112": "for i in ():\n    try:\n        x = 1\n    except ValueError:{line}\n        continue{line}\n",
+         "S112": "for i in ():\n    try:\n        x = 1\n    except Exception:{line}\n        continue{line}\n",
          "G004": "import logging\n\nlogging.getLogger(__name__).warning(f\"{{__name__}}\"){line}\n",
          "LOG015": "import logging\n\nlogging.info(\"x\"){line}\n",
          "TID251": "import contextlib\n\nwith contextlib.suppress(ValueError):{line}\n    x = 1\n"}
