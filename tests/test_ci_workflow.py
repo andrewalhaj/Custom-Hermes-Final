@@ -76,7 +76,7 @@ def test_the_dev_tools_are_installed_from_the_pinned_group_before_they_run():
     assert commands.index(install) < commands.index("ruff check .") < commands.index("python -m pytest -q")
 
 
-NOQA_STEP = "no noqa that can silence the error-handling rules"
+NOQA_STEP = "no noqa that can silence a protected rule"
 NOQA_CASES = [
     ("clean", {"a.py": CODE}, None),
     ("another rule only", {"a.py": f"import os  # {NOQA}: F401\n"}, None),

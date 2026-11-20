@@ -45,7 +45,7 @@ jobs:
           fi
           [ "$code" -eq 0 ] || { echo "secret scan: gitleaks found a secret (above, redacted)"; exit "$code"; }
       - run: ruff check .
-      - name: no noqa that can silence the error-handling rules
+      - name: no noqa that can silence a protected rule
         shell: bash
         run: |
           # Matches a bare noqa, a noqa naming one of the protected rules (C2: BLE001, S110, E722, S112, TID251;
