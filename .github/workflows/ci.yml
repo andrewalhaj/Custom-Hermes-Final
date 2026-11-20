@@ -157,7 +157,7 @@ jobs:
                   # or logging.config imported by name, which the lint's ban on it cannot see
                   if (isinstance(child, ast.Call) and getattr(child.func, "attr", getattr(child.func, "id", None)) in ("import_module", "__import__")
                           and child.args and isinstance(child.args[0], ast.Constant) and str(child.args[0].value).startswith("logging.config")):
-                      bad.append(f"log handler added: {path}:{child.lineno}")
+                      bad.append(f"logging.config imported by name: {path}:{child.lineno}")
                   named = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                   walk(child, path, (f"{func}.{child.name}" if func else child.name) if named else func, names)
           for path in subprocess.run(["git", "ls-files", "-z", "*.py"], check=True, capture_output=True, text=True).stdout.split("\0")[:-1]:
