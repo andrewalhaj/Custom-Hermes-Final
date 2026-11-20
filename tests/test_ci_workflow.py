@@ -703,11 +703,12 @@ def test_a_byte_that_is_not_utf8_shows_in_the_summary_and_is_not_dropped(tmp_pat
     assert code == 3 and "\ufffd" in summary and "the last line" in summary
 
 
-def read_issue(tmp_path, gh_exit):
+def read_issue(tmp_path, gh_exit, only_comments_fail=False):
     """Run the step that fetches the issue, with a stand-in `gh` that prints its arguments and exits."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*"\nexit {gh_exit}\n')
+    fails = 'case "$*" in *--comments*) exit 1 ;; esac\n' if only_comments_fail else ""
+    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*"\n{fails}exit {gh_exit}\n')
     (bin_dir / "gh").chmod(0o755)
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("read the issue")["run"]],
                             check=False, capture_output=True, text=True, cwd=tmp_path,
@@ -720,6 +721,9 @@ def test_the_issue_step_writes_what_gh_prints_and_fails_when_gh_fails(tmp_path):
     assert read_issue(tmp_path, 0) == (0, "gh issue view 7\n\nComments on the issue:\ngh issue view 7 --comments\n")
     (tmp_path / "failed").mkdir()
     assert read_issue(tmp_path / "failed", 1)[0] == 1
+    # A comments fetch that fails must fail the step: a body with an empty comments section reads as "none" (C3).
+    (tmp_path / "comments").mkdir()
+    assert read_issue(tmp_path / "comments", 0, only_comments_fail=True)[0] == 1
 
 
 def test_the_review_job_cannot_hang_or_pile_up():
