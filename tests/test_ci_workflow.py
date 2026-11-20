@@ -636,7 +636,7 @@ def run_review_step(tmp_path, exit_with, filler=0, char="x"):
         f"print('not a complete review: F3: no answer', file=sys.stderr)\nsys.exit({exit_with})\n")
     summary = tmp_path / "summary.md"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", review_step("review the branch")["run"]],
-                            check=False, capture_output=True, text=True, cwd=tmp_path,
+                            check=False, capture_output=True, text=True, errors="replace", cwd=tmp_path,   # the log is raw
                             env={"PATH": "/usr/bin:/bin:" + str(pathlib.Path(shutil.which("python")).parent),
                                  "BRANCH": "feat/x", "ISSUE": "7", "GITHUB_STEP_SUMMARY": str(summary),
                                  "RUNNER_TEMP": str(tmp_path)})

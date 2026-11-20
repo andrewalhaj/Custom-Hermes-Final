@@ -265,8 +265,9 @@ jobs:
           python - "$RUNNER_TEMP/review.txt" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import re, sys
           data = open(sys.argv[1], "rb").read()
-          text = data[:900000].decode("utf-8", errors="ignore")   # ignore: the cut may fall inside a character
+          text = data[:900000].decode("utf-8", errors="replace")   # a byte that is not UTF-8 shows as U+FFFD
           if len(data) > 900000:
+              text = text.rstrip("\ufffd")   # the cut may fall inside a character
               text += "\n[report cut here: it is too long for a job summary; the job log has all of it]"
           fence = "~" * (max(map(len, re.findall("~+", text)), default=7) + 1)   # nothing in the report can close it
           sys.stdout.buffer.write(f"{fence}text\n{text.rstrip(chr(10))}\n{fence}\n".encode("utf-8"))
