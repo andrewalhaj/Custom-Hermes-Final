@@ -371,7 +371,7 @@ Hermes owns logging for code that runs inside it: the log files, rotation and re
 
 ## 8. Repository guards and CI
 
-The bootstrap `tests` job checks the guide links, the allow-list and action pins, and scans the Git history. The table records requirements for those checks and the checks that ship with runtime code. Prove each with its own failing case before relying on it (rule C6).
+The bootstrap `tests` job checks the guide links, the instruction-file contract, the allow-list and action pins, and scans the Git history. The table records requirements for those checks and the checks that ship with runtime code. Prove each with its own failing case before relying on it (rule C6).
 
 | Guard | Rules | Where it lives | The failing case that proves it |
 |---|---|---|---|
@@ -380,6 +380,7 @@ The bootstrap `tests` job checks the guide links, the allow-list and action pins
 | Suppression ban for `BLE001`, `S110`, `E722` | C2 | The CI workflow | A pull request that adds `# noqa: BLE001`, a bare `# noqa`, a file-level `# ruff: noqa`, a broad catch under any other suppression comment such as `# ruff: ignore[BLE001]`, ruff configuration that turns one of these rules off, an `exclude`, or a ruff configuration file outside the root `pyproject.toml`, fails |
 | Tests in CI | W3, final result | The CI workflow | A pull request with a failing test fails. Review verifies the preceding red run and commit. |
 | Actions pinned to a full commit SHA | 8.2 | The test suite | A step or a job in any workflow file whose `uses:` names a tag or a branch fails the build |
+| Instruction-file contract: `AGENTS.md` links the three guides, repeats section 9's error-handling rule word for word, and is the only instruction file tracked | Section 9 | The test suite | A removed link, a missing guide, a changed rule in either file, or a tracked `CLAUDE.md`, `.hermes.md`, `HERMES.md`, `AGENTS.override.md`, `.cursorrules`, `SOUL.md`, `.cursor/` rule or second `AGENTS.md`, at any depth, fails the build |
 | Plugin validation: `hermes plugins doctor --ci` and a load test, added with the plugin's first code | ARCHITECTURE.md 5.5 | The CI workflow | A plugin whose `register(ctx)` raises fails doctor; a manifest without `kind: standalone` fails the load test |
 | Failure-catalog test | F1, F6 | The test suite | A handler that emits no code, or an unknown one, fails the build |
 | Secret-leak test | L4, W13 | The test suite | A fake key that reaches a log line, a stored row or an outgoing request fails the build |
