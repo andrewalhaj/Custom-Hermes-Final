@@ -587,6 +587,7 @@ def test_the_token_reaches_only_the_step_that_runs_the_review():
     # The reviewer's own environment holds the subscription token and nothing else that is secret (#35).
     assert sorted(step["env"]) == ["BRANCH", REVIEW_TOKEN, "ISSUE"]
     assert '--issue-file "$RUNNER_TEMP/issue.txt"' in step["run"]
+    assert "--check-tools" in step["run"]   # each run checks the reviewer's tool limit still holds (#45)
 
 
 def test_the_issue_text_is_fetched_in_its_own_step_with_the_github_token():
