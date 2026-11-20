@@ -1,6 +1,6 @@
 """Run the independent review before a pull request (CONTRIBUTING.md W6, issue #27).
 
-    python scripts/review.py <branch> <issue> [--out report.json] [--issue-file issue.txt]
+    python scripts/review.py <branch> <issue> [--out report.json] [--issue-file issue.txt] [--check-tools]
     python scripts/review.py <branch> <issue> --print-issue > issue.txt
 
 A separate, read-only `claude -p` reviews the branch against origin/main and must answer,
@@ -9,7 +9,9 @@ diff, the commits and the issue with its comments are gathered here, or the issu
 reviewer needs no shell. The checklist is read from the guide each run, so a new rule is asked about
 without a change here.
 
-Exit 0: every item answered, none failed, verdict ship. Exit 3: a rule failed or the verdict is fix_first. Exit 4: the report is not a complete review.
+Exit 0: every item answered, none failed, verdict ship. Exit 3: a rule failed or the verdict is fix_first.
+Exit 4: the report is not a complete review. Exit 5: with --check-tools, the session reported a tool beyond
+reading files, and nothing was reviewed.
 Anything else that goes wrong (no `claude`, no login, no structured output) crashes with a traceback and
 exit 1: it is not a review. Exit 2: bad arguments, the branch not checked out, or uncommitted changes.
 """
@@ -43,11 +45,29 @@ HOW = ("Review this change like the senior developer who will be paged when it b
 TOOLS = ["Read", "Grep", "Glob"]   # read-only: no shell at all, since even `git diff` takes --output=<path>
 
 
+# What limits the reviewer. `--tools` sets which tools exist; nothing else is offered, MCP included, and the
+# user's own hooks and plugins stay out of the review.
+LIMITS = ["--tools", *TOOLS, "--strict-mcp-config", "--setting-sources", "project"]
+TOOL_QUESTION = ("List the exact name of every tool you can call in this session, including any tool you could "
+                 "load or search for. Give the names only.")
+TOOL_ANSWER = {"type": "object", "additionalProperties": False, "required": ["tools"],
+               "properties": {"tools": {"type": "array", "items": {"type": "string"}}}}
+
+
 def command(items):
-    """The reviewer's command line. `--tools` sets which tools exist; nothing else is offered, MCP included."""
+    """The reviewer's command line."""
     return ["claude", "-p", "--output-format", "json", "--json-schema", json.dumps(schema(items)),
-            "--append-system-prompt", ROLE, "--tools", *TOOLS, "--strict-mcp-config",
-            "--setting-sources", "project"]   # the user's own hooks and plugins stay out of the review
+            "--append-system-prompt", ROLE, *LIMITS]
+
+
+def tool_check_command():
+    """A session under the reviewer's own limits, asked which tools it has (--check-tools)."""
+    return ["claude", "-p", "--output-format", "json", "--json-schema", json.dumps(TOOL_ANSWER), *LIMITS]
+
+
+def extra_tools(tools):
+    """The tools a session reports beyond reading files. StructuredOutput is how it returns its answer."""
+    return sorted(set(tools) - {*TOOLS, "StructuredOutput"})
 
 
 def checklist(guide):
@@ -153,6 +173,9 @@ def main(argv):
                         help="read the issue's text from this file; without it, `gh issue view` fetches it")
     parser.add_argument("--print-issue", action="store_true",
                         help="print the issue's text as the reviewer would get it, and stop")
+    parser.add_argument("--check-tools", action="store_true",
+                        help="first ask a session under the reviewer's limits which tools it has, and stop if any "
+                             "goes beyond reading files")
     args = parser.parse_args(argv)
 
     def read(*command):   # a command that only prints; a failure crashes, and its stderr reaches the terminal
@@ -164,6 +187,13 @@ def main(argv):
     if args.print_issue:
         sys.stdout.write(fetch_issue())
         return 0
+    if args.check_tools:   # the session's own account of its tools: a Claude Code bump could change `--tools`
+        asked = subprocess.run(tool_check_command(), input=TOOL_QUESTION, cwd=ROOT, check=True,
+                               stdout=subprocess.PIPE, text=True)
+        extra = extra_tools(json.loads(asked.stdout)["structured_output"]["tools"])
+        if extra:
+            print(f"the reviewer was offered tools beyond Read, Grep and Glob: {', '.join(extra)}", file=sys.stderr)
+            return 5
     guide = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     items = checklist(guide)
 
