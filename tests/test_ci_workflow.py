@@ -236,6 +236,8 @@ CONFIG_CASES = [
     ("extend-ignore a G code the probe does not test", {"pyproject.toml": CONFIG + 'extend-ignore = ["G010"]\n'},
      "extend-ignore: G010"),
     ("ignore another rule", {"pyproject.toml": CONFIG + 'ignore = ["F401"]\n'}, None),
+    ("extend loads another settings file", {"pyproject.toml": '[tool.ruff]\nextend = "base.toml"\n' + CONFIG},
+     "extend: base.toml"),
     ("select narrows the rules", {"pyproject.toml": CONFIG + 'select = ["E", "G004"]\n'}, "select: E"),
     ("top-level select", {"pyproject.toml": '[tool.ruff]\nselect = ["G004"]\n' + CONFIG}, "select: G004"),
     ("per-file ignore G", {"pyproject.toml": CONFIG + '[tool.ruff.lint.per-file-ignores]\n"pkg/*" = ["G"]\n'},
