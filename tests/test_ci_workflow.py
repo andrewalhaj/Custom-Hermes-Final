@@ -283,20 +283,12 @@ def test_handler_check(tmp_path, label, files, expect):
     check(tmp_path, step_script(HANDLER_STEP), files, expect)
 
 
-def test_the_handler_check_admits_only_the_named_wrappers(tmp_path):
-    script = step_script(HANDLER_STEP)
-    assert "ALLOWED = set()" in script   # empty until the failure module's two wrappers exist (C2)
-    script = script.replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary"}')
-    body = ("def boundary():\n    try:\n        x = 1\n    except Exception:\n        raise\n"
-            "def other():\n    try:\n        x = 1\n    except Exception:\n        raise\n")
-    check(tmp_path, script, {"pkg/failures.py": body}, "broad handler outside the wrappers: pkg/failures.py:9 in other")
-    check(tmp_path / "only", script, {"pkg/failures.py": body.split("def other")[0]}, None)
-
-
-def test_the_allow_list_names_a_decorator_wrapper_by_its_qualified_name(tmp_path):
+def test_the_allow_list_admits_only_a_named_wrapper_by_its_qualified_name(tmp_path):
     # The boundary wrapper wraps each function Hermes calls (ARCHITECTURE.md section 2), so it is a decorator
     # whose inner function holds the handler; a method of the same name in a class is not the wrapper.
-    script = step_script(HANDLER_STEP).replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary.wrapped"}')
+    script = step_script(HANDLER_STEP)
+    assert "ALLOWED = set()" in script   # empty until the failure module's two wrappers exist (C2)
+    script = script.replace("ALLOWED = set()", 'ALLOWED = {"pkg/failures.py:boundary.wrapped"}')
     decorator = ("def boundary(fn):\n    def wrapped(*a):\n        try:\n            return fn(*a)\n"
                  "        except BaseException:\n            raise\n    return wrapped\n")
     check(tmp_path, script, {"pkg/failures.py": decorator}, None)
