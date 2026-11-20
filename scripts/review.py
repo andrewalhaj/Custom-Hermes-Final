@@ -29,7 +29,8 @@ SECTION_ITEMS = {
 }
 ROLE = ("You are an independent reviewer with no prior context. Do not assume the author's claims are true; "
         "check them. Question the request too: push back on any part of the change the issue does not justify.")
-# The review's own instructions, kept here so every machine and CI give the same brief (#29).
+# The review's own instructions, kept here so the brief needs no user plugin (#29). A user's global
+# instruction file and memory still load on their own machine; a CI runner has neither.
 HOW = ("Review this change like the senior developer who will be paged when it breaks. Order of importance: "
        "correct, safe, holds under the load this repository expects, tested, fast, lean. Read the diff, then the "
        "code it touches: the callers of what changed, what it calls, the tests and the guides. Trace the real "
@@ -43,7 +44,8 @@ TOOLS = ["Read", "Grep", "Glob"]   # read-only: no shell at all, since even `git
 def command(items):
     """The reviewer's command line. `--tools` sets which tools exist; nothing else is offered, MCP included."""
     return ["claude", "-p", "--output-format", "json", "--json-schema", json.dumps(schema(items)),
-            "--append-system-prompt", ROLE, "--tools", *TOOLS, "--strict-mcp-config"]
+            "--append-system-prompt", ROLE, "--tools", *TOOLS, "--strict-mcp-config",
+            "--setting-sources", "project"]   # the user's own hooks and plugins stay out of the review
 
 
 def checklist(guide):
