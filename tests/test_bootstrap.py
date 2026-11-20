@@ -98,6 +98,8 @@ HIDDEN = [
     ".github/workflows/token.txt",
     ".githooks/.env",
     ".githooks/notes.md",
+    "migrations/.env",
+    "migrations/notes.md",
 ]
 VISIBLE = [
     ".gitignore",
@@ -111,6 +113,8 @@ VISIBLE = [
     ".github/workflows/new.yml",
     ".githooks/pre-commit",
     "tests/test_new.py",
+    "migrations/0001_memory_store.sql",
+    "migrations/0002_next.sql",
 ]
 
 
